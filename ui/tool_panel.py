@@ -1,40 +1,29 @@
 """
-工具面板 — 暗色主题，6 种编辑模式，模式切换标签页
+工具面板 — 暗色主题，12 种编辑模式，模式切换标签页
+
+各页面已解耦为独立 QWidget 类, ToolPanel 负责:
+1. 实例化各 page 并加入 QStackedWidget
+2. 转发 page 信号到自身同名信号 (保持 MainWindow 连接不变)
+3. 转发公共更新方法到对应 page
 """
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
+    QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QSlider, QLabel, QButtonGroup,
-    QSpinBox, QFrame, QStackedWidget, QGridLayout,
-    QSizePolicy, QListWidget, QListWidgetItem, QComboBox,
-    QLineEdit, QColorDialog,
+    QFrame, QStackedWidget,
+    QSizePolicy,
 )
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QPixmap, QIcon, QBrush
 
-from data.constants import (
-    TILE_LAND, TILE_SEA, TILE_LAKE,
-    BRUSH_MIN, BRUSH_MAX, BRUSH_DEFAULT,
-)
-from data.terrain_types import TERRAIN_TYPES, TERRAIN_PALETTE_INDEX
-from domain.managers.state import StateManager
-from domain.managers.country import RULING_PARTIES
-from domain.managers.river import PAINTABLE_RIVER_TYPES, RIVER_PALETTE
+from data.constants import BRUSH_DEFAULT
 
-
-# 色板 / 样式常量 / 辅助函数从统一位置 import
+# 色板 / 样式常量从统一位置 import
 from ui.styles import (
-    _BG, _INPUT_BG, _BORDER, _TEXT, _DIM, _ACCENT, _SUCCESS,
-    _SECTION_STYLE, _LABEL_STYLE, _DIM_LABEL_STYLE, _SLIDER_STYLE,
-    _TOOL_BTN_STYLE, _PRIMARY_BTN_STYLE, _SECONDARY_BTN_STYLE,
-    _SUCCESS_BTN_STYLE, _SPINBOX_STYLE, _LINEEDIT_STYLE,
-    _COMBOBOX_STYLE, _LIST_STYLE, _color_icon,
+    _BG, _INPUT_BG, _BORDER, _TEXT, _ACCENT,
+    _SECTION_STYLE, _SUCCESS_BTN_STYLE,
 )
-
 
 
 # ── 分组折叠模式栏 ─────────────────────────────────────────
-# groups: [("组名", "emoji", [("mode_id", "icon label"), ...]), ...]
-
 _GROUP_HEADER_STYLE = f"""
     QPushButton {{
         background: {_INPUT_BG};
@@ -103,7 +92,7 @@ class _GroupedModeBar(QWidget):
             header.setCursor(Qt.CursorShape.PointingHandCursor)
             layout.addWidget(header)
 
-            # 组内按钮容器: 竖列, 每个 mode 一行
+            # 组内按钮容器
             container = QWidget()
             vbox = QVBoxLayout(container)
             vbox.setContentsMargins(0, 0, 0, 4)
@@ -129,7 +118,7 @@ class _GroupedModeBar(QWidget):
                 lambda checked=False, h=header, c=container: self._toggle_group(h, c)
             )
 
-        layout.addStretch(1)  # 底部弹性空间
+        layout.addStretch(1)
 
         self._btn_group.buttonClicked.connect(
             lambda btn: self.mode_changed.emit(btn.property("mode_id"))
@@ -155,15 +144,15 @@ class _GroupedModeBar(QWidget):
 
 # ── 主面板 ────────────────────────────────────────────────
 class ToolPanel(QWidget):
-    """左侧工具面板 — 支持 land / province / terrain / height / state / country 六种模式"""
+    """左侧工具面板 — 12 种模式, 信号转发到各 page"""
 
-    # 信号
+    # 信号 (保持与 MainWindow 的连接不变)
     mode_changed = pyqtSignal(str)
     tool_changed = pyqtSignal(str)
     tile_type_changed = pyqtSignal(int)
     brush_size_changed = pyqtSignal(int)
     terrain_index_changed = pyqtSignal(int)
-    terrain_brush_mode_changed = pyqtSignal(bool)  # True=画笔模式, False=按省份
+    terrain_brush_mode_changed = pyqtSignal(bool)
     height_value_changed = pyqtSignal(int)
     generate_provinces_requested = pyqtSignal(int)
     validate_requested = pyqtSignal()
@@ -171,26 +160,26 @@ class ToolPanel(QWidget):
     auto_height_requested = pyqtSignal()
     smooth_height_requested = pyqtSignal()
     export_requested = pyqtSignal()
-    split_province_requested = pyqtSignal()  # 切割选中省份
-    lasso_province_toggled = pyqtSignal(bool)  # 扩张工具开关
-    merge_mode_toggled = pyqtSignal(bool)      # 合并模式开关
+    split_province_requested = pyqtSignal()
+    lasso_province_toggled = pyqtSignal(bool)
+    merge_mode_toggled = pyqtSignal(bool)
 
     # State / Country 信号
-    auto_states_requested = pyqtSignal(int)       # per_state count
-    state_selected = pyqtSignal(int)              # state_id
-    state_property_changed = pyqtSignal(int, str, object)  # (state_id, prop_name, value)
-    state_detail_requested = pyqtSignal(int)      # state_id — 打开详情对话框
+    auto_states_requested = pyqtSignal(int)
+    state_selected = pyqtSignal(int)
+    state_property_changed = pyqtSignal(int, str, object)
+    state_detail_requested = pyqtSignal(int)
     create_country_requested = pyqtSignal()
-    quick_create_country_requested = pyqtSignal(str, str, str)  # (tag, name, party)
-    country_selected = pyqtSignal(str)            # tag
-    country_property_changed = pyqtSignal(str, str, object)  # (tag, prop_name, value)
-    country_color_change_requested = pyqtSignal(str)  # tag — 请求更改国家颜色
+    quick_create_country_requested = pyqtSignal(str, str, str)
+    country_selected = pyqtSignal(str)
+    country_property_changed = pyqtSignal(str, str, object)
+    country_color_change_requested = pyqtSignal(str)
 
     # 河流信号
-    river_type_changed = pyqtSignal(int)          # 河流类型索引
-    validate_river_requested = pyqtSignal()       # 验证河流
+    river_type_changed = pyqtSignal(int)
+    validate_river_requested = pyqtSignal()
 
-    # 后勤信号 (Phase 1)
+    # 后勤信号
     open_adjacency_dialog_requested = pyqtSignal()
     open_railway_list_requested = pyqtSignal()
     logistics_railway_level_changed = pyqtSignal(int)
@@ -214,7 +203,7 @@ class ToolPanel(QWidget):
     strategic_region_pick_toggled = pyqtSignal(bool)
 
     # 总览贴图信号
-    colormap_color_changed = pyqtSignal(str, int, int, int)  # (attr, r, g, b)
+    colormap_color_changed = pyqtSignal(str, int, int, int)
     colormap_reset_requested = pyqtSignal()
 
     # 地图配置信号
@@ -237,7 +226,7 @@ class ToolPanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # 分组折叠模式栏 (竖列大按钮, 无 emoji)
+        # 分组折叠模式栏
         self._mode_tabs = _GroupedModeBar([
             ("地图绘制", [
                 ("land", "陆地与海洋"),
@@ -266,29 +255,8 @@ class ToolPanel(QWidget):
         self._stack.setStyleSheet("background: transparent; border: none;")
         root.addWidget(self._stack, 1)
 
-        # 按 mode_id 顺序加 page
-        self._pages: dict[str, QWidget] = {}
-        _page_builders = [
-            ("land", self._build_land_page),
-            ("province", self._build_province_page),
-            ("terrain", self._build_terrain_page),
-            ("height", self._build_height_page),
-            ("river", self._build_river_page),
-            ("state", self._build_state_page),
-            ("country", self._build_country_page),
-            ("continent", self._build_continent_page),
-            ("strategic_region", self._build_strategic_region_page),
-            ("logistics", self._build_logistics_page),
-            ("colormap", self._build_colormap_page),
-            ("default_map", self._build_default_map_page),
-        ]
-        self._mode_index: dict[str, int] = {}
-        for i, (mode_id, builder) in enumerate(_page_builders):
-            page = builder()
-            self._stack.addWidget(page)
-            self._pages[mode_id] = page
-            self._mode_index[mode_id] = i
-        self._stack.setCurrentIndex(0)
+        # 创建各页面实例并连接信号
+        self._create_pages()
 
         # 底部固定区域
         sep = QFrame()
@@ -301,96 +269,290 @@ class ToolPanel(QWidget):
         export_btn.clicked.connect(self.export_requested.emit)
         root.addWidget(export_btn)
 
-    # ── Land 页 ───────────────────────────────────────────
-    def _build_land_page(self) -> QWidget:
-        from features.map.land.page import build_page
-        return build_page(self)
+    def _create_pages(self) -> None:
+        """实例化各 page 类, 加入 stack, 连接信号转发."""
+        from features.map.land.page import LandPage
+        from features.map.province.page import ProvincePage
+        from features.map.terrain.page import TerrainPage
+        from features.map.height.page import HeightPage
+        from features.map.river.page import RiverPage
+        from features.map.state.page import StatePage
+        from features.map.country.page import CountryPage
+        from features.map.continent.page import ContinentPage
+        from features.map.strategic_region.page import StrategicRegionPage
+        from features.map.logistics.page import LogisticsPage
+        from features.map.colormap.page import ColormapPage
+        from features.map.default_map.page import DefaultMapPage
 
-    # ── Logistics 页 (Phase 1) ────────────────────────────
-    def _build_logistics_page(self) -> QWidget:
-        from features.map.logistics.page import build_page
-        return build_page(self)
+        # 创建实例
+        self._land_page = LandPage()
+        self._province_page = ProvincePage()
+        self._terrain_page = TerrainPage()
+        self._height_page = HeightPage()
+        self._river_page = RiverPage()
+        self._state_page = StatePage()
+        self._country_page = CountryPage()
+        self._continent_page = ContinentPage()
+        self._strategic_region_page = StrategicRegionPage()
+        self._logistics_page = LogisticsPage()
+        self._colormap_page = ColormapPage()
+        self._default_map_page = DefaultMapPage()
 
-    # ── Continent 页 (从菜单弹窗迁来) ────────────────────
-    def _build_continent_page(self) -> QWidget:
-        from features.map.continent.page import build_page
-        return build_page(self)
+        # 按 mode_id 顺序加入 stack
+        page_list = [
+            ("land", self._land_page),
+            ("province", self._province_page),
+            ("terrain", self._terrain_page),
+            ("height", self._height_page),
+            ("river", self._river_page),
+            ("state", self._state_page),
+            ("country", self._country_page),
+            ("continent", self._continent_page),
+            ("strategic_region", self._strategic_region_page),
+            ("logistics", self._logistics_page),
+            ("colormap", self._colormap_page),
+            ("default_map", self._default_map_page),
+        ]
+        self._pages: dict[str, QWidget] = {}
+        self._mode_index: dict[str, int] = {}
+        for i, (mode_id, page) in enumerate(page_list):
+            self._stack.addWidget(page)
+            self._pages[mode_id] = page
+            self._mode_index[mode_id] = i
+        self._stack.setCurrentIndex(0)
 
-    # ── Strategic Region 页 (从菜单弹窗迁来) ─────────────
-    def _build_strategic_region_page(self) -> QWidget:
-        from features.map.strategic_region.page import build_page
-        return build_page(self)
+        # ── 信号转发 ──
+        self._connect_land_signals()
+        self._connect_province_signals()
+        self._connect_terrain_signals()
+        self._connect_height_signals()
+        self._connect_river_signals()
+        self._connect_state_signals()
+        self._connect_country_signals()
+        self._connect_continent_signals()
+        self._connect_strategic_region_signals()
+        self._connect_logistics_signals()
+        self._connect_colormap_signals()
+        self._connect_default_map_signals()
 
-    # ── Colormap 页 (从菜单弹窗迁来) ─────────────────────
-    def _build_colormap_page(self) -> QWidget:
-        from features.map.colormap.page import build_page
-        return build_page(self)
+    def _connect_land_signals(self) -> None:
+        p = self._land_page
+        p.tool_changed.connect(self.tool_changed)
+        p.tile_type_changed.connect(self.tile_type_changed)
+        p.brush_size_changed.connect(self.brush_size_changed)
+        p.generate_provinces_requested.connect(self.generate_provinces_requested)
+        p.validate_requested.connect(self.validate_requested)
 
-    # ── Default Map 页 (从菜单弹窗迁来) ──────────────────
-    def _build_default_map_page(self) -> QWidget:
-        from features.map.default_map.page import build_page
-        return build_page(self)
+    def _connect_province_signals(self) -> None:
+        p = self._province_page
+        p.split_province_requested.connect(self.split_province_requested)
+        p.lasso_province_toggled.connect(self.lasso_province_toggled)
+        p.merge_mode_toggled.connect(self.merge_mode_toggled)
 
+    def _connect_terrain_signals(self) -> None:
+        p = self._terrain_page
+        p.terrain_index_changed.connect(self.terrain_index_changed)
+        p.terrain_brush_mode_changed.connect(self.terrain_brush_mode_changed)
+        p.auto_terrain_requested.connect(self.auto_terrain_requested)
 
-    # ── Terrain 页 ────────────────────────────────────────
-    def _build_terrain_page(self) -> QWidget:
-        from features.map.terrain.page import build_page
-        return build_page(self)
+    def _connect_height_signals(self) -> None:
+        p = self._height_page
+        p.height_value_changed.connect(self.height_value_changed)
+        p.auto_height_requested.connect(self.auto_height_requested)
+        p.smooth_height_requested.connect(self.smooth_height_requested)
 
+    def _connect_river_signals(self) -> None:
+        p = self._river_page
+        p.tool_changed.connect(self.tool_changed)
+        p.brush_size_changed.connect(self.brush_size_changed)
+        p.river_type_changed.connect(self.river_type_changed)
+        p.validate_river_requested.connect(self.validate_river_requested)
 
-    # ── Height 页 ─────────────────────────────────────────
-    def _build_height_page(self) -> QWidget:
-        from features.map.height.page import build_page
-        return build_page(self)
+    def _connect_state_signals(self) -> None:
+        p = self._state_page
+        p.auto_states_requested.connect(self.auto_states_requested)
+        p.state_selected.connect(self.state_selected)
+        p.state_property_changed.connect(self.state_property_changed)
+        p.state_detail_requested.connect(self.state_detail_requested)
 
+    def _connect_country_signals(self) -> None:
+        p = self._country_page
+        p.create_country_requested.connect(self.create_country_requested)
+        p.quick_create_country_requested.connect(self.quick_create_country_requested)
+        p.country_selected.connect(self.country_selected)
+        p.country_property_changed.connect(self.country_property_changed)
+        p.country_color_change_requested.connect(self.country_color_change_requested)
 
-    # ── Province 页 ───────────────────────────────────────
-    def _build_province_page(self) -> QWidget:
-        from features.map.province.page import build_page
-        return build_page(self)
+    def _connect_continent_signals(self) -> None:
+        p = self._continent_page
+        p.continent_pick_toggled.connect(self.continent_pick_toggled)
+        p.continent_add_requested.connect(self.continent_add_requested)
+        p.continent_rename_requested.connect(self.continent_rename_requested)
+        p.continent_remove_requested.connect(self.continent_remove_requested)
 
+    def _connect_strategic_region_signals(self) -> None:
+        p = self._strategic_region_page
+        p.strategic_region_auto_requested.connect(self.strategic_region_auto_requested)
+        p.strategic_region_selected.connect(self.strategic_region_selected)
+        p.strategic_region_new_requested.connect(self.strategic_region_new_requested)
+        p.strategic_region_delete_requested.connect(self.strategic_region_delete_requested)
+        p.strategic_region_name_changed.connect(self.strategic_region_name_changed)
+        p.strategic_region_weather_changed.connect(self.strategic_region_weather_changed)
+        p.strategic_region_naval_changed.connect(self.strategic_region_naval_changed)
+        p.strategic_region_pick_toggled.connect(self.strategic_region_pick_toggled)
 
-    # ── State 页 ──────────────────────────────────────────
-    def _build_state_page(self) -> QWidget:
-        from features.map.state.page import build_page
-        return build_page(self)
+    def _connect_logistics_signals(self) -> None:
+        p = self._logistics_page
+        p.open_adjacency_dialog_requested.connect(self.open_adjacency_dialog_requested)
+        p.open_railway_list_requested.connect(self.open_railway_list_requested)
+        p.logistics_railway_level_changed.connect(self.logistics_railway_level_changed)
+        p.logistics_railway_draw_toggled.connect(self.logistics_railway_draw_toggled)
+        p.logistics_supply_pick_toggled.connect(self.logistics_supply_pick_toggled)
 
+    def _connect_colormap_signals(self) -> None:
+        p = self._colormap_page
+        p.colormap_color_changed.connect(self.colormap_color_changed)
+        p.colormap_reset_requested.connect(self.colormap_reset_requested)
 
-    def _on_state_detail_clicked(self) -> None:
-        """请求打开当前选中 state 的详情对话框."""
-        sid = getattr(self, "_current_state_id", 0)
-        if sid > 0:
-            self.state_detail_requested.emit(sid)
+    def _connect_default_map_signals(self) -> None:
+        p = self._default_map_page
+        p.default_map_river_changed.connect(self.default_map_river_changed)
+        p.default_map_tree_add_requested.connect(self.default_map_tree_add_requested)
+        p.default_map_tree_del_requested.connect(self.default_map_tree_del_requested)
+        p.default_map_tree_reset_requested.connect(self.default_map_tree_reset_requested)
 
-    # ── Country 页 ────────────────────────────────────────
-    def _build_country_page(self) -> QWidget:
-        from features.map.country.page import build_page
-        return build_page(self)
-
-
-    # ── River 页 ────────────────────────────────────────
-    def _build_river_page(self) -> QWidget:
-        from features.map.river.page import build_page
-        return build_page(self)
-
-
-    # ── 辅助：创建分组 ───────────────────────────────────
-    def _make_section(self, title: str) -> QGroupBox:
-        box = QGroupBox(title)
-        box.setLayout(QVBoxLayout())
-        box.layout().setContentsMargins(8, 8, 8, 8)
-        box.layout().setSpacing(4)
-        box.setStyleSheet(_SECTION_STYLE)
-        return box
-
-    # ── 属性 ──────────────────────────────────────────────
+    # ── 属性 (保持与 MainWindow 的兼容) ──────────────────────
     @property
     def ref_opacity_slider(self) -> QSlider:
-        return self._ref_opacity_slider
+        return self._land_page._ref_opacity_slider
 
     @property
     def mode_tabs(self) -> _GroupedModeBar:
         return self._mode_tabs
+
+    # 参考图控件 — 暴露给 MainWindow 直连画布
+    @property
+    def _vanilla_ref_opacity_slider(self) -> QSlider:
+        return self._land_page._vanilla_ref_opacity_slider
+
+    @property
+    def _vanilla_ref_toggle(self) -> QPushButton:
+        return self._land_page._vanilla_ref_toggle
+
+    @property
+    def _ref_scale_slider(self) -> QSlider:
+        return self._land_page._ref_scale_slider
+
+    @property
+    def _ref_fit_btn(self) -> QPushButton:
+        return self._land_page._ref_fit_btn
+
+    @property
+    def _ref_toggle(self) -> QPushButton:
+        return self._land_page._ref_toggle
+
+    # 快速创建颜色 — 外部读取
+    @property
+    def _quick_create_color(self) -> tuple:
+        return self._country_page._quick_create_color
+
+    # 后勤状态标签 — 外部直接更新
+    @property
+    def _logi_adj_status(self) -> QLabel:
+        return self._logistics_page._logi_adj_status
+
+    @property
+    def _logi_rail_status(self) -> QLabel:
+        return self._logistics_page._logi_rail_status
+
+    @property
+    def _logi_sup_status(self) -> QLabel:
+        return self._logistics_page._logi_sup_status
+
+    @property
+    def _logi_rail_draw_btn(self) -> QPushButton:
+        return self._logistics_page._logi_rail_draw_btn
+
+    @property
+    def _logi_sup_toggle_btn(self) -> QPushButton:
+        return self._logistics_page._logi_sup_toggle_btn
+
+    @property
+    def _logi_rail_level(self):
+        return self._logistics_page._logi_rail_level
+
+    # 大陆列表/拾取/状态 — 外部直接访问
+    @property
+    def _continent_list(self):
+        return self._continent_page._continent_list
+
+    @property
+    def _continent_pick_btn(self):
+        return self._continent_page._continent_pick_btn
+
+    @property
+    def _continent_status(self):
+        return self._continent_page._continent_status
+
+    # 战略区域 — 外部直接访问
+    @property
+    def _sr_list(self):
+        return self._strategic_region_page._sr_list
+
+    @property
+    def _sr_name_edit(self):
+        return self._strategic_region_page._sr_name_edit
+
+    @property
+    def _sr_weather_combo(self):
+        return self._strategic_region_page._sr_weather_combo
+
+    @property
+    def _sr_naval_combo(self):
+        return self._strategic_region_page._sr_naval_combo
+
+    @property
+    def _sr_prov_count(self):
+        return self._strategic_region_page._sr_prov_count
+
+    @property
+    def _sr_pick_btn(self):
+        return self._strategic_region_page._sr_pick_btn
+
+    # Colormap swatches — 外部通过旧名访问
+    @property
+    def _colormap_land_swatch(self):
+        return self._colormap_page._swatches["land"]
+
+    @property
+    def _colormap_sea_swatch(self):
+        return self._colormap_page._swatches["sea"]
+
+    @property
+    def _colormap_lake_swatch(self):
+        return self._colormap_page._swatches["lake"]
+
+    # Default map — 外部直接访问
+    @property
+    def _dm_river_max(self):
+        return self._default_map_page._dm_river_max
+
+    @property
+    def _dm_tree_list(self):
+        return self._default_map_page._dm_tree_list
+
+    # Province 合并/扩张按钮 — 外部访问
+    @property
+    def _merge_btn(self):
+        return self._province_page._merge_btn
+
+    @property
+    def _expand_btn(self):
+        return self._province_page._expand_btn
+
+    @property
+    def _province_hint(self):
+        return self._province_page._province_hint
 
     # ── 槽函数 ────────────────────────────────────────────
     def _on_mode_changed(self, mode: str) -> None:
@@ -401,168 +563,27 @@ class ToolPanel(QWidget):
             self.tool_changed.emit("brush")
         self.mode_changed.emit(mode)
 
-    def _on_river_brush(self, size: int) -> None:
-        self._river_brush_label.setText(f"{size}px")
-        self.brush_size_changed.emit(size)
-
-    def _on_country_color_clicked(self) -> None:
-        """点击颜色块弹出颜色选择器"""
-        tag = self._country_tag_label.text()
-        if tag and tag != "—":
-            self.country_color_change_requested.emit(tag)
-
-    def _on_land_brush(self, size: int) -> None:
-        self._land_brush_label.setText(f"{size}px")
-        self.brush_size_changed.emit(size)
-
-    def _on_terrain_brush(self, size: int) -> None:
-        self._terrain_brush_label.setText(f"{size}px")
-        self.brush_size_changed.emit(size)
-
-    def _on_height_brush(self, size: int) -> None:
-        self._height_brush_label.setText(f"{size}px")
-        self.brush_size_changed.emit(size)
-
-    def _on_height_value(self, value: int) -> None:
-        self._height_value_label.setText(str(value))
-        self.height_value_changed.emit(value)
-
-    def _apply_height_preset(self, value: int) -> None:
-        self._height_slider.setValue(value)
-
-    def _on_tile_click(self, tile_type: int) -> None:
-        self.tile_type_changed.emit(tile_type)
-        # 自动切换到画笔工具
-        for btn in self._land_tool_group.buttons():
-            if btn.property("tool_id") == "brush":
-                btn.setChecked(True)
-                self.tool_changed.emit("brush")
-                break
-
-    def _on_generate_provinces(self) -> None:
-        count = self._province_count_spin.value()
-        self.generate_provinces_requested.emit(count)
-
-    # ── State 槽函数 ──────────────────────────────────────
-    def _on_auto_states(self) -> None:
-        per_state = self._state_per_spin.value()
-        self.auto_states_requested.emit(per_state)
-
-    def _on_state_list_clicked(self, row: int) -> None:
-        item = self._state_list.item(row)
-        if item is not None:
-            state_id = item.data(Qt.UserRole)
-            if state_id is not None:
-                self._current_state_id = int(state_id)
-                self.state_selected.emit(state_id)
-
-    def _on_state_name_changed(self) -> None:
-        item = self._state_list.currentItem()
-        if item is not None:
-            state_id = item.data(Qt.UserRole)
-            if state_id is not None:
-                self.state_property_changed.emit(
-                    state_id, "name", self._state_name_edit.text()
-                )
-
-    def _on_state_manpower_changed(self, value: int) -> None:
-        item = self._state_list.currentItem()
-        if item is not None:
-            state_id = item.data(Qt.UserRole)
-            if state_id is not None:
-                self.state_property_changed.emit(state_id, "manpower", value)
-
-    def _on_state_category_changed(self, text: str) -> None:
-        item = self._state_list.currentItem()
-        if item is not None:
-            state_id = item.data(Qt.UserRole)
-            if state_id is not None:
-                self.state_property_changed.emit(state_id, "category", text)
-
-    # ── Country 槽函数 ────────────────────────────────────
-    def _on_country_list_clicked(self, row: int) -> None:
-        item = self._country_list.item(row)
-        if item is not None:
-            tag = item.data(Qt.UserRole)
-            if tag is not None:
-                self.country_selected.emit(tag)
-
-    def _on_country_name_changed(self) -> None:
-        tag = self._country_tag_label.text()
-        if tag and tag != "—":
-            self.country_property_changed.emit(
-                tag, "name", self._country_name_edit.text()
-            )
-
-    def _on_country_party_changed(self, text: str) -> None:
-        tag = self._country_tag_label.text()
-        if tag and tag != "—":
-            self.country_property_changed.emit(tag, "ruling_party", text)
-
-    # ── 公共方法 ──────────────────────────────────────────
+    # ── 公共方法 (转发到对应 page) ────────────────────────
     def update_province_info(
         self, pid: int, ptype: str, terrain: str, pixels: int, coastal: bool
     ) -> None:
         """更新省份信息面板"""
-        self._prov_labels["id"].setText(str(pid))
-        self._prov_labels["type"].setText(ptype)
-        self._prov_labels["terrain"].setText(terrain)
-        self._prov_labels["pixels"].setText(str(pixels))
-        self._prov_labels["coastal"].setText("是" if coastal else "否")
+        self._province_page.update_province_info(pid, ptype, terrain, pixels, coastal)
 
     def update_state_list(self, states: list[tuple[int, str]]) -> None:
-        """刷新 State 列表，items 为 (id, name)"""
-        self._state_list.clear()
-        for state_id, name in states:
-            item = QListWidgetItem(f"[{state_id}] {name}")
-            item.setData(Qt.UserRole, state_id)
-            self._state_list.addItem(item)
-
-    def update_country_list(self, countries: list[tuple[str, str, tuple]]) -> None:
-        """刷新国家列表，items 为 (tag, name, color)"""
-        self._country_list.clear()
-        for tag, name, color in countries:
-            item = QListWidgetItem(f"[{tag}] {name}")
-            item.setData(Qt.UserRole, tag)
-            r, g, b = color
-            item.setForeground(QBrush(QColor(r, g, b)))
-            self._country_list.addItem(item)
+        """刷新 State 列表"""
+        self._state_page.update_state_list(states)
 
     def update_state_info(self, name: str, manpower: int, category: str) -> None:
         """填充 State 属性字段"""
-        self._state_name_edit.blockSignals(True)
-        self._state_name_edit.setText(name)
-        self._state_name_edit.blockSignals(False)
+        self._state_page.update_state_info(name, manpower, category)
 
-        self._state_manpower_spin.blockSignals(True)
-        self._state_manpower_spin.setValue(manpower)
-        self._state_manpower_spin.blockSignals(False)
-
-        self._state_category_combo.blockSignals(True)
-        idx = self._state_category_combo.findText(category)
-        if idx >= 0:
-            self._state_category_combo.setCurrentIndex(idx)
-        self._state_category_combo.blockSignals(False)
+    def update_country_list(self, countries: list[tuple[str, str, tuple]]) -> None:
+        """刷新国家列表"""
+        self._country_page.update_country_list(countries)
 
     def update_country_info(
         self, tag: str, name: str, party: str, color: tuple, capital_name: str
     ) -> None:
         """填充国家属性字段"""
-        self._country_tag_label.setText(tag)
-
-        self._country_name_edit.blockSignals(True)
-        self._country_name_edit.setText(name)
-        self._country_name_edit.blockSignals(False)
-
-        self._country_party_combo.blockSignals(True)
-        idx = self._country_party_combo.findText(party)
-        if idx >= 0:
-            self._country_party_combo.setCurrentIndex(idx)
-        self._country_party_combo.blockSignals(False)
-
-        r, g, b = color
-        self._country_color_btn.setStyleSheet(
-            f"background: rgb({r},{g},{b}); border: 1px solid {_BORDER}; border-radius: 3px;"
-        )
-
-        self._country_capital_label.setText(capital_name if capital_name else "未设置")
+        self._country_page.update_country_info(tag, name, party, color, capital_name)

@@ -21,6 +21,15 @@ class CountryController(BaseController):
     def __init__(self, project: "Project", command_history: "CommandHistory") -> None:
         super().__init__(project, command_history)
         self.selected_country_tag: str = ""
+        # 始终监听省份重新生成
+        self.event_bus.subscribe("province_map_regenerated", self._on_province_regen)
+
+    def _on_province_regen(self, event) -> None:
+        """省份全量重新生成 → 清除所有国家数据。"""
+        if not event.data.get("incremental"):
+            self.project.country_mgr.clear()
+            self.selected_country_tag = ""
+            self.event_bus.emit("country_changed", tag="", action="refresh")
 
     def activate(self) -> None:
         """进入国家模式，刷新颜色图。"""

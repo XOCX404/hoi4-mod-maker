@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from controllers.base import BaseController
 from commands.province.merge import MergeProvincesCommand
+from commands.province.split import SplitProvinceCommand
 
 if TYPE_CHECKING:
     from model.project import Project
@@ -71,30 +72,35 @@ class ProvinceController(BaseController):
 
     def split_selected(self) -> bool:
         """切割当前选中的省份。返回是否成功。"""
+        import numpy as np
+
         pid = self.selected_province_id
         if pid <= 0:
             self._emit_status("请先点击选中一个省份")
             return False
 
-        # 切割逻辑委托给 map_data（实际切割需要操作 province_map）
         map_data = self.project.map_data
         province_map = map_data.province_map
 
-        import numpy as np
         mask = province_map == pid
         pixels = int(np.sum(mask))
         if pixels < 16:
             self._emit_status("切割失败（省份太小）")
             return False
 
-        # 找省份像素坐标
+        # 找省份像素坐标，按中位数分为上下两半
         ys, xs = np.where(mask)
         mid_y = int(np.median(ys))
-
-        # 分为上下两半
         new_pid = int(province_map.max()) + 1
+
+        # 构建要分给新省份的像素 mask
+        split_mask = np.zeros_like(province_map, dtype=bool)
         upper = ys <= mid_y
-        province_map[ys[upper], xs[upper]] = new_pid
+        split_mask[ys[upper], xs[upper]] = True
+
+        # 通过 Command 执行（支持撤销）
+        cmd = SplitProvinceCommand(map_data, pid, new_pid, split_mask)
+        self.history.execute(cmd)
 
         self.project.mark_dirty()
         self._emit_status(f"省份 {pid} 已切割，新省份 ID: {new_pid}")

@@ -155,7 +155,13 @@ def main() -> None:
 
     # ── 7. 清理旧 MOD ──
     if args.clean and os.path.exists(args.output_dir):
-        shutil.rmtree(args.output_dir)
+        shutil.rmtree(args.output_dir, ignore_errors=True)
+        # Windows 上 rmtree 有延迟，等目录确实消失
+        import time
+        for _ in range(50):
+            if not os.path.exists(args.output_dir):
+                break
+            time.sleep(0.1)
         print(f"已清空: {args.output_dir}")
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -185,6 +191,52 @@ def main() -> None:
     print(f"\n[OK] {args.mod_name} 导出完成: {file_count} 个文件")
     print(f"省份: {pcount}, State: {len(state_mgr.states)}, "
           f"国家: {len(country_mgr.countries)}")
+
+    # ── 9. 导出验证 ──
+    print("\n── 导出验证 ──")
+    critical_files = [
+        "map/default.map", "map/provinces.bmp", "map/definition.csv",
+        "map/terrain.bmp", "map/heightmap.bmp", "map/rivers.bmp",
+        "map/buildings.txt", "map/positions.txt", "map/adjacencies.csv",
+        "map/supply_nodes.txt", "map/railways.txt", "map/continent.txt",
+        "descriptor.mod",
+    ]
+    missing = []
+    for f in critical_files:
+        path = os.path.join(args.output_dir, f)
+        if os.path.exists(path):
+            size = os.path.getsize(path)
+            if size == 0:
+                print(f"  [空文件!] {f}")
+                missing.append(f)
+            else:
+                print(f"  [OK] {f} ({size:,} bytes)")
+        else:
+            print(f"  [缺失!] {f}")
+            missing.append(f)
+
+    # 检查目录
+    for d in ["history/states", "history/countries", "common/country_tags"]:
+        dp = os.path.join(args.output_dir, d)
+        if os.path.isdir(dp):
+            count = len(os.listdir(dp))
+            print(f"  [OK] {d}/ ({count} 个文件)")
+        else:
+            print(f"  [缺失!] {d}/")
+            missing.append(d)
+
+    # .mod 启动器文件
+    mod_file = args.output_dir + ".mod"
+    if os.path.exists(mod_file):
+        print(f"  [OK] {os.path.basename(mod_file)}")
+    else:
+        print(f"  [缺失!] {os.path.basename(mod_file)}")
+        missing.append(mod_file)
+
+    if missing:
+        print(f"\n[警告] {len(missing)} 个关键文件缺失或为空!")
+    else:
+        print("\n[验证通过] 所有关键文件完整，可以进游戏测试。")
 
 
 if __name__ == "__main__":

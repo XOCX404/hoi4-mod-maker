@@ -63,7 +63,7 @@ class ProvinceContextMenu:
 
             vp_action = menu.addAction("设置胜利点...")
 
-            tag = self._project.country_mgr.get_state_owner(state_id)
+            tag = self._project.country_mgr.get_owner_of_state(state_id)
             if tag:
                 country_info = menu.addAction(f"所属国家: {tag}")
                 country_info.setEnabled(False)

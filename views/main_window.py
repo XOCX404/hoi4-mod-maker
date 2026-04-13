@@ -1,14 +1,13 @@
 """
-新主窗口 — MVC 架构的控制中枢。
-创建 Project / CommandHistory / 所有 Controller，
-将 ToolPanel 信号路由到 Controller 方法，
-通过 EventBus 接收反馈更新 UI。
+主窗口 — 薄壳，只做 UI 组装和信号路由。
+所有业务逻辑委托给 ApplicationController。
 
-文件动作/导入导出/对话框拆分到 views/main_window_actions.py。
+文件操作/对话框拆分在:
+  - views/main_window_actions.py (省份生成/验证/国家/河流/地形/大陆/战略区/后勤)
+  - views/main_window_file_ops.py (新建/打开/保存/导入/导出)
 """
 from __future__ import annotations
 
-import numpy as np
 from PyQt5.QtWidgets import (
     QMainWindow, QAction, QFileDialog, QMessageBox,
     QLabel, QApplication, QInputDialog, QSplitter, QStackedWidget,
@@ -19,6 +18,7 @@ from PyQt5.QtGui import QKeySequence
 from model.project import Project
 from model.events import EventBus
 from commands.history import CommandHistory
+from controllers.app_controller import ApplicationController
 
 from controllers.land import LandController
 from controllers.province import ProvinceController
@@ -40,24 +40,11 @@ from views.context_menu import ProvinceContextMenu
 from views.shortcuts import ShortcutManager, show_shortcut_dialog
 from ui.tool_panel import ToolPanel
 from ui.i18n import tr
-from data.constants import (
-    TILE_SEA, TILE_LAND, TILE_LAKE,
-    DEFAULT_PROVINCES,
-)
-
-
-# ── 模式名称映射 ──
-_MODE_NAMES = {
-    "land": "大陆", "province": "省份", "terrain": "地形",
-    "height": "高度", "state": "State", "country": "国家",
-    "river": "河流", "continent": "大洲", "logistics": "后勤",
-    "strategic_region": "战略区", "colormap": "总览贴图",
-    "default_map": "地图配置",
-}
+from data.constants import DEFAULT_PROVINCES
 
 
 class MainWindow(MainWindowActionsMixin, QMainWindow):
-    """MVC 主窗口 — 瘦壳，只做装配和 UI 路由。"""
+    """主窗口 — 纯 UI 壳，逻辑在 ApplicationController。"""
 
     def __init__(self) -> None:
         super().__init__()
@@ -69,7 +56,7 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         self._project = Project(event_bus=self._event_bus)
         self._cmd_history = CommandHistory(event_bus=self._event_bus)
 
-        # 旧版 undo manager（画布 stroke 仍在用）
+        # 旧版 undo manager（画布 stroke 仍在用，阶段 4 统一后删除）
         from domain.undo_manager import UndoManager
         self._undo_mgr = UndoManager(max_steps=30)
 
@@ -88,7 +75,6 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
             "colormap": ColormapController(self._project, self._cmd_history),
             "default_map": DefaultMapController(self._project, self._cmd_history),
         }
-        self._current_controller = None
 
         # ── 快捷键管理器 ──
         self._shortcut_mgr = ShortcutManager()
@@ -97,6 +83,13 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         self._init_ui()
         self._init_menu()
         self._init_statusbar()
+
+        # ── ApplicationController（在 UI 组装后创建）──
+        self._app = ApplicationController(
+            self._project, self._canvas, self._tool_panel,
+            self._cmd_history, self._controllers, self._undo_mgr,
+        )
+
         self._connect_signals()
         self._subscribe_events()
         self._init_shortcuts()
@@ -120,7 +113,6 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
     # ═══════════════════════ UI 初始化 ═══════════════════════
 
     def _init_ui(self) -> None:
-        # 堆叠容器：欢迎页 / 编辑器
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
 
@@ -264,9 +256,7 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         # Province 信号 → controller
         tp.split_province_requested.connect(self._on_split_province)
         tp.lasso_province_toggled.connect(self._on_lasso_toggled)
-        tp.merge_mode_toggled.connect(
-            lambda on: self._controllers["province"].set_merge_mode(on)
-        )
+        tp.merge_mode_toggled.connect(self._on_merge_toggled)
 
         # State 信号 → controller
         tp.auto_states_requested.connect(
@@ -356,8 +346,8 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         cv.province_right_clicked.connect(self._on_province_right_clicked)
         cv.province_right_clicked_at.connect(self._on_province_right_clicked_at)
         cv.provinces_cleared.connect(self._on_provinces_cleared)
-        cv.stroke_started.connect(self._on_stroke_started)
-        cv.stroke_ended.connect(self._on_stroke_ended)
+        cv.stroke_started.connect(self._app.on_stroke_started)
+        cv.stroke_ended.connect(self._app.on_stroke_ended)
         cv.mouse_moved.connect(
             lambda x, y: self._status_pos.setText(tr("status_pos", x, y))
         )
@@ -369,14 +359,11 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
 
     def _subscribe_events(self) -> None:
         bus = self._event_bus
+        # 只订阅纯 UI 更新事件，业务事件由 AppController 处理
         bus.subscribe("status_message", self._on_evt_status)
         bus.subscribe("undo_state_changed", self._on_evt_undo_state)
-        bus.subscribe("request_render", self._on_evt_render)
         bus.subscribe("province_count_changed", self._on_evt_province_count)
-        bus.subscribe("state_changed", self._on_evt_state_changed)
-        bus.subscribe("country_changed", self._on_evt_country_changed)
         bus.subscribe("vp_dialog_requested", self._on_evt_vp_dialog)
-        bus.subscribe("vp_changed", self._on_evt_vp_changed)
         bus.subscribe("logistics_province_picked", self._on_evt_logistics_picked)
 
     def _on_evt_status(self, event) -> None:
@@ -385,68 +372,9 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
     def _on_evt_undo_state(self, event) -> None:
         pass  # TODO: enable/disable undo/redo actions
 
-    def _on_evt_render(self, event) -> None:
-        full = event.data.get("full", False)
-        bbox = event.data.get("bbox")
-        # 重新绑定 canvas 别名，防止 MapData 属性被替换后别名过期
-        self._canvas._rebind_aliases()
-        if full or bbox is None:
-            self._canvas._full_render()
-        else:
-            x0, y0, x1, y1 = bbox
-            self._canvas._partial_render(x0, y0, x1, y1)
-
     def _on_evt_province_count(self, event) -> None:
         count = event.data.get("count", 0)
         self._status_provinces.setText(tr("status_provinces", count))
-
-    def _on_evt_state_changed(self, event) -> None:
-        """State 数据变化 → 刷新 UI。"""
-        action = event.data.get("action", "")
-        if action == "refresh":
-            # 完全重建（auto_split / 加载项目）
-            self._invalidate_province_cache()
-            self._refresh_state_list()
-            self._refresh_state_colors()
-        elif action == "modified":
-            sid = event.data.get("state_id", 0)
-            state = self._project.state_mgr.get_state(sid)
-            if state:
-                self._tool_panel.update_state_info(
-                    state.name, state.manpower, state.category
-                )
-            # 省份分配变化才刷新颜色图，属性修改不用
-            prop = event.data.get("property", "")
-            if prop in ("", "provinces", "assign"):
-                self._refresh_state_colors()
-        elif action == "selected":
-            sid = event.data.get("state_id", 0)
-            state = self._project.state_mgr.get_state(sid)
-            if state:
-                self._tool_panel.update_state_info(
-                    state.name, state.manpower, state.category
-                )
-
-    def _on_evt_country_changed(self, event) -> None:
-        """Country 数据变化 → 刷新 UI。"""
-        action = event.data.get("action", "")
-        tag = event.data.get("tag", "")
-        if action in ("refresh", "created", "modified"):
-            self._refresh_country_list()
-            self._refresh_country_colors()
-            if tag:
-                self._update_country_info_panel(tag)
-        elif action == "selected" and tag:
-            self._update_country_info_panel(tag)
-
-    def _update_country_info_panel(self, tag: str) -> None:
-        country = self._project.country_mgr.get_country(tag)
-        if country:
-            capital_name = f"省份 {country.capital}" if country.capital > 0 else ""
-            self._tool_panel.update_country_info(
-                country.tag, country.name, country.ruling_party,
-                country.color, capital_name,
-            )
 
     def _on_evt_vp_dialog(self, event) -> None:
         """StateController 请求弹 VP 对话框。"""
@@ -462,11 +390,7 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
             ctrl: StateController = self._controllers["state"]
             ctrl.set_vp(pid, value)
 
-    def _on_evt_vp_changed(self, event) -> None:
-        self._refresh_vp_data()
-
     def _on_evt_logistics_picked(self, event) -> None:
-        """后勤拾取完成 → 回填给对话框。"""
         pid = event.data.get("pid", 0)
         target = event.data.get("target", "")
         if target in ("adj_from", "adj_to", "adj_through"):
@@ -479,22 +403,8 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
     # ═══════════════════════ 模式切换 ═══════════════════════
 
     def _on_mode_changed(self, mode: str) -> None:
-        if self._current_controller is not None:
-            self._current_controller.deactivate()
-
-        self._canvas.cleanup_mode_state()
-        self._canvas.display_mode = mode
-
-        self._current_controller = self._controllers.get(mode)
-        if self._current_controller is not None:
-            self._current_controller.activate()
-
-        self._status_mode.setText(f"模式: {_MODE_NAMES.get(mode, mode)}")
-
-        if mode == "state":
-            self._refresh_state_colors()
-        elif mode == "country":
-            self._refresh_country_colors()
+        mode_name = self._app.on_mode_changed(mode)
+        self._status_mode.setText(f"模式: {mode_name}")
 
     # ═══════════════════════ 省份点击路由 ═══════════════════
 
@@ -502,92 +412,24 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         if pid <= 0:
             return
         try:
-            self._update_province_info(pid)
-            if self._current_controller is not None:
-                self._current_controller.on_province_clicked(pid)
+            info = self._app.on_province_clicked(pid)
+            if info:
+                self._tool_panel.update_province_info(
+                    pid, info["ptype"], info["terrain"],
+                    info["pixels"], info["coastal"],
+                )
         except Exception as e:
             self._status_info.setText(f"操作异常: {e}")
             import traceback
             traceback.print_exc()
 
-    def _invalidate_province_cache(self) -> None:
-        """清除省份信息缓存（省份数据变化时调用）。"""
-        self._province_info_cache: dict = {}
-
-    def _update_province_info(self, pid: int) -> None:
-        """计算并更新省份信息面板（使用缓存）。"""
-        if not hasattr(self, '_province_info_cache'):
-            self._province_info_cache = {}
-
-        # 缓存命中
-        if pid in self._province_info_cache:
-            cached = self._province_info_cache[pid]
-            self._tool_panel.update_province_info(
-                pid, cached["ptype"], cached["terrain"], cached["pixels"], cached["coastal"]
-            )
-            return
-
-        # 缓存未命中：计算
-        pm = self._canvas.province_map
-        tm = self._canvas.tile_map
-        mask = pm == pid
-        pixels = int(np.sum(mask))
-
-        ys, xs = np.where(mask)
-        if len(ys) == 0:
-            return
-
-        tiles = tm[mask]
-        land_n = int(np.sum(tiles == TILE_LAND))
-        sea_n = int(np.sum(tiles == TILE_SEA))
-        lake_n = int(np.sum(tiles == TILE_LAKE))
-        if sea_n >= land_n and sea_n >= lake_n:
-            ptype = "海洋"
-        elif lake_n >= land_n:
-            ptype = "湖泊"
-        else:
-            ptype = "陆地"
-
-        # coastal 检查
-        from data.constants import TILE_SEA as _TS
-        _adj = False
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            ny = np.clip(ys + dy, 0, tm.shape[0] - 1)
-            nx = np.clip(xs + dx, 0, tm.shape[1] - 1)
-            if np.any(tm[ny, nx] == _TS):
-                _adj = True
-                break
-        coastal = _adj and ptype == "陆地"
-
-        from data.terrain_types import GRAPHICAL_TERRAIN_BY_INDEX
-        terrain_data = self._canvas.terrain_map[mask]
-        if len(terrain_data) > 0:
-            terrain_idx = int(np.bincount(terrain_data).argmax())
-            gt = GRAPHICAL_TERRAIN_BY_INDEX.get(terrain_idx)
-            terrain_name = gt.name_cn if gt else "未知"
-        else:
-            terrain_name = "未知"
-
-        # 存缓存
-        self._province_info_cache[pid] = {
-            "ptype": ptype, "terrain": terrain_name,
-            "pixels": pixels, "coastal": coastal,
-        }
-
-        self._tool_panel.update_province_info(pid, ptype, terrain_name, pixels, coastal)
-
     def _on_province_double_clicked(self, pid: int) -> None:
-        if pid <= 0:
-            return
-        if self._current_controller is not None:
-            self._current_controller.on_province_double_clicked(pid)
+        self._app.on_province_double_clicked(pid)
 
     def _on_province_right_clicked(self, pid: int) -> None:
-        # 保留旧行为（controller 处理），实际菜单通过 _at 信号触发
         pass
 
     def _on_province_right_clicked_at(self, pid: int, screen_x: int, screen_y: int) -> None:
-        """右键省份 → 弹出上下文菜单。"""
         if pid <= 0:
             return
         self._context_menu.show(pid, QPoint(screen_x, screen_y))
@@ -598,79 +440,19 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
 
     # ═══════════════════════ 撤销/重做 ═══════════════════════
 
-    def _get_undo_arrays(self) -> dict[str, np.ndarray]:
-        mode = self._canvas.display_mode
-        if mode == "land":
-            return {"tile_map": self._canvas.tile_map}
-        elif mode == "terrain":
-            return {"terrain_map": self._canvas.terrain_map}
-        elif mode == "height":
-            return {"height_map": self._canvas.height_map}
-        elif mode == "province":
-            return {"province_map": self._canvas.province_map}
-        elif mode == "river":
-            return {"river_map": self._canvas.river_map}
-        return {}
-
-    def _on_stroke_started(self) -> None:
-        mode = self._canvas.display_mode
-        self._undo_mgr.begin_stroke(f"{mode} 绘制", self._get_undo_arrays())
-
-    def _on_stroke_ended(self) -> None:
-        self._undo_mgr.end_stroke(self._get_undo_arrays())
-
     def _on_undo(self) -> None:
-        if self._undo_mgr._pending is not None:
-            self._undo_mgr.end_stroke(self._get_undo_arrays())
-        arrays = {
-            "tile_map": self._canvas.tile_map,
-            "province_map": self._canvas.province_map,
-            "terrain_map": self._canvas.terrain_map,
-            "height_map": self._canvas.height_map,
-            "river_map": self._canvas.river_map,
-        }
-        result = self._undo_mgr.undo(arrays)
-        if result is None:
-            self._status_info.setText("没有可撤销的操作")
-            return
-        self._apply_undo_result(result)
-        self._status_info.setText("已撤销")
+        msg = self._app.undo()
+        self._status_info.setText(msg)
+        self._update_province_count()
 
     def _on_redo(self) -> None:
-        if self._undo_mgr._pending is not None:
-            self._undo_mgr.end_stroke(self._get_undo_arrays())
-        arrays = {
-            "tile_map": self._canvas.tile_map,
-            "province_map": self._canvas.province_map,
-            "terrain_map": self._canvas.terrain_map,
-            "height_map": self._canvas.height_map,
-            "river_map": self._canvas.river_map,
-        }
-        result = self._undo_mgr.redo(arrays)
-        if result is None:
-            self._status_info.setText("没有可重做的操作")
-            return
-        self._apply_undo_result(result)
-        self._status_info.setText("已重做")
-
-    def _apply_undo_result(self, result: dict[str, np.ndarray]) -> None:
-        if "tile_map" in result:
-            self._canvas.tile_map = result["tile_map"]
-        if "province_map" in result:
-            self._canvas.province_map = result["province_map"]
-        if "terrain_map" in result:
-            self._canvas.terrain_map = result["terrain_map"]
-        if "height_map" in result:
-            self._canvas.height_map = result["height_map"]
-        if "river_map" in result:
-            self._canvas.river_map = result["river_map"]
-        self._canvas.refresh_display()
+        msg = self._app.redo()
+        self._status_info.setText(msg)
         self._update_province_count()
 
     # ═══════════════════════ Province 操作 ═══════════════════
 
     def _on_split_province(self) -> None:
-        from controllers.province import ProvinceController
         ctrl: ProvinceController = self._controllers["province"]
         pid = self._canvas._selected_province_id
         ctrl.selected_province_id = pid
@@ -678,8 +460,21 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         if ok:
             self._update_province_count()
 
+    def _on_merge_toggled(self, on: bool) -> None:
+        if on:
+            QMessageBox.information(
+                self, "合并省份",
+                "先点击要保留的省份，再点击要被合并的省份。\n"
+                "被合并省份的像素将并入保留省份。",
+            )
+        self._controllers["province"].set_merge_mode(on)
+
     def _on_lasso_toggled(self, on: bool) -> None:
         if on:
+            QMessageBox.information(
+                self, "扩张省份",
+                "点击要扩张的省份，然后拖动画笔将周围像素并入该省份。",
+            )
             self._controllers["province"].set_merge_mode(False)
             from domain.tools import lasso_province  # noqa: F401
             self._canvas.set_framework_tool(
@@ -703,66 +498,29 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         tags = list(self._project.country_mgr.countries.keys())
         dlg = StateDetailDialog(state, tags, parent=self)
         if dlg.exec_() == dlg.Accepted:
-            self._refresh_state_list()
+            self._app._refresh_state_list()
             self._status_info.setText(f"State {state_id} 已更新")
-
-    def _refresh_state_list(self) -> None:
-        items = [(sid, s.name) for sid, s in self._project.state_mgr.states.items()]
-        self._tool_panel.update_state_list(items)
-
-    def _refresh_state_colors(self) -> None:
-        if int(self._canvas.province_map.max()) == 0:
-            return
-        rgb = self._project.state_mgr.build_state_color_map(self._canvas.province_map)
-        self._canvas.set_state_colors(rgb)
-        self._refresh_vp_data()
-
-    def _refresh_vp_data(self) -> None:
-        vp_dict: dict[int, int] = {}
-        for state in self._project.state_mgr.states.values():
-            for pid, vp_val in state.victory_points.items():
-                if vp_val > 0:
-                    vp_dict[pid] = vp_val
-        self._canvas.set_vp_data(vp_dict)
-
-    def _refresh_country_list(self) -> None:
-        self._tool_panel.update_country_list(self._project.country_mgr.get_country_list())
-
-    def _refresh_country_colors(self) -> None:
-        if int(self._canvas.province_map.max()) == 0:
-            return
-        rgb = self._project.country_mgr.build_country_color_map(
-            self._canvas.province_map, self._project.state_mgr
-        )
-        self._canvas.set_country_colors(rgb)
-
-    # ── Continent / Strategic Region / Default Map 的 UI 处理
-    #    定义在 MainWindowActionsMixin 中
 
     # ═══════════════════════ 省份计数 ═══════════════════════
 
     def _update_province_count(self) -> None:
-        count = int(self._canvas.province_map.max())
+        count = self._app.update_province_count()
         self._status_provinces.setText(tr("status_provinces", count))
 
     # ═══════════════════════ 欢迎页 ═══════════════════════════
 
     def _show_welcome(self) -> None:
-        """显示欢迎页。"""
         self._stack.setCurrentWidget(self._welcome_page)
 
     def _show_editor(self) -> None:
-        """切换到编辑器视图。"""
         self._stack.setCurrentWidget(self._splitter)
         QTimer.singleShot(100, self._canvas.fit_in_view)
 
     def _on_welcome_new(self, width: int, height: int) -> None:
-        """欢迎页 → 新建项目（指定尺寸）。"""
         self._on_new_project()
         self._show_editor()
 
     def _on_welcome_open_recent(self, path: str) -> None:
-        """欢迎页 → 打开最近项目。"""
         import os
         if not os.path.exists(path):
             QMessageBox.warning(self, "错误", f"文件不存在:\n{path}")
@@ -774,7 +532,6 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
     # ═══════════════════════ 快捷键 ═══════════════════════════
 
     def _init_shortcuts(self) -> None:
-        """注册快捷键回调并应用到窗口。"""
         mgr = self._shortcut_mgr
 
         mgr.register("undo", self._on_undo)
@@ -798,11 +555,8 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
             key = f"tool_{tool_name}"
             mgr.register(key, lambda t=tool_name: self._canvas.set_tool(t))
 
-        mgr.register("delete", lambda: None)  # placeholder
+        mgr.register("delete", lambda: None)
 
-        # 不在这里 apply — 菜单已有快捷键绑定，ShortcutManager 仅管理模式/工具快捷键
-        # 避免重复绑定菜单已有的 Ctrl+Z 等
-        # 只绑定模式和工具快捷键
         from PyQt5.QtWidgets import QShortcut
         from PyQt5.QtGui import QKeySequence as KS
 
@@ -818,5 +572,4 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
                 mgr._shortcuts.append(sc)
 
     def _on_shortcut_settings(self) -> None:
-        """打开快捷键设置对话框。"""
         show_shortcut_dialog(self, self._shortcut_mgr)

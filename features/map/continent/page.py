@@ -1,100 +1,106 @@
-"""
-大陆分区 page — 侧边栏内联版 (从 dialog.py 迁移).
+"""大陆分区 page — 独立 QWidget, 不依赖 ToolPanel.
 
 功能: 大陆列表 CRUD + 拾取省份指派.
 """
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QInputDialog, QMessageBox, QScrollArea,
+    QListWidget, QInputDialog, QScrollArea,
 )
 
 from ui.styles import (
-    _DIM_LABEL_STYLE, _PRIMARY_BTN_STYLE, _SECONDARY_BTN_STYLE,
-    _SECTION_STYLE, _LABEL_STYLE, _LIST_STYLE,
+    _DIM_LABEL_STYLE, _PRIMARY_BTN_STYLE, _LIST_STYLE,
 )
 
 
-def build_page(panel) -> QWidget:
-    """构建大陆分区页. panel 是 ToolPanel 实例."""
-    outer = QWidget()
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setStyleSheet("QScrollArea { border: none; }")
+class ContinentPage(QWidget):
+    """大陆分区页面."""
 
-    page = QWidget()
-    lay = QVBoxLayout(page)
-    lay.setContentsMargins(0, 0, 0, 0)
-    lay.setSpacing(8)
+    # 输出信号
+    continent_pick_toggled = pyqtSignal(bool)
+    continent_add_requested = pyqtSignal(str)
+    continent_rename_requested = pyqtSignal(int, str)
+    continent_remove_requested = pyqtSignal(int)
 
-    tip = QLabel("定义大陆 + 把省份指派到大陆.\n"
-                 "HOI4 要求所有陆地省份必须属于某个大洲，\n"
-                 "影响 continent.txt 和 definition.csv.\n"
-                 "先创建大陆(如 europe, asia)，再用拾取模式\n"
-                 "点击省份分配到选中的大陆.")
-    tip.setWordWrap(True)
-    tip.setStyleSheet(_DIM_LABEL_STYLE)
-    lay.addWidget(tip)
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._init_ui()
 
-    # 大陆列表
-    panel._continent_list = QListWidget()
-    panel._continent_list.setStyleSheet(_LIST_STYLE)
-    panel._continent_list.setMaximumHeight(150)
-    lay.addWidget(panel._continent_list)
+    def _init_ui(self) -> None:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
 
-    btn_row = QHBoxLayout()
-    add_btn = QPushButton("添加")
-    add_btn.clicked.connect(lambda: _on_add_continent(panel))
-    rename_btn = QPushButton("重命名")
-    rename_btn.clicked.connect(lambda: _on_rename_continent(panel))
-    remove_btn = QPushButton("删除")
-    remove_btn.clicked.connect(lambda: _on_remove_continent(panel))
-    btn_row.addWidget(add_btn)
-    btn_row.addWidget(rename_btn)
-    btn_row.addWidget(remove_btn)
-    lay.addLayout(btn_row)
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)
 
-    # 拾取按钮
-    panel._continent_pick_btn = QPushButton("开始指派省份")
-    panel._continent_pick_btn.setCheckable(True)
-    panel._continent_pick_btn.setStyleSheet(_PRIMARY_BTN_STYLE)
-    panel._continent_pick_btn.toggled.connect(
-        lambda on: panel.continent_pick_toggled.emit(on)
-    )
-    lay.addWidget(panel._continent_pick_btn)
+        tip = QLabel("定义大陆 + 把省份指派到大陆.\n"
+                     "HOI4 要求所有陆地省份必须属于某个大洲，\n"
+                     "影响 continent.txt 和 definition.csv.\n"
+                     "先创建大陆(如 europe, asia)，再用拾取模式\n"
+                     "点击省份分配到选中的大陆.")
+        tip.setWordWrap(True)
+        tip.setStyleSheet(_DIM_LABEL_STYLE)
+        lay.addWidget(tip)
 
-    panel._continent_status = QLabel("")
-    panel._continent_status.setStyleSheet("color: #6c6cf0; font-size: 11px;")
-    lay.addWidget(panel._continent_status)
+        # 大陆列表
+        self._continent_list = QListWidget()
+        self._continent_list.setStyleSheet(_LIST_STYLE)
+        self._continent_list.setMaximumHeight(150)
+        lay.addWidget(self._continent_list)
 
-    lay.addStretch(1)
-    scroll.setWidget(page)
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("添加")
+        add_btn.clicked.connect(self._on_add_continent)
+        rename_btn = QPushButton("重命名")
+        rename_btn.clicked.connect(self._on_rename_continent)
+        remove_btn = QPushButton("删除")
+        remove_btn.clicked.connect(self._on_remove_continent)
+        btn_row.addWidget(add_btn)
+        btn_row.addWidget(rename_btn)
+        btn_row.addWidget(remove_btn)
+        lay.addLayout(btn_row)
 
-    root = QVBoxLayout(outer)
-    root.setContentsMargins(0, 0, 0, 0)
-    root.addWidget(scroll)
-    return outer
+        # 拾取按钮
+        self._continent_pick_btn = QPushButton("开始指派省份")
+        self._continent_pick_btn.setCheckable(True)
+        self._continent_pick_btn.setStyleSheet(_PRIMARY_BTN_STYLE)
+        self._continent_pick_btn.toggled.connect(
+            lambda on: self.continent_pick_toggled.emit(on)
+        )
+        lay.addWidget(self._continent_pick_btn)
 
+        self._continent_status = QLabel("")
+        self._continent_status.setStyleSheet("color: #6c6cf0; font-size: 11px;")
+        lay.addWidget(self._continent_status)
 
-def _on_add_continent(panel):
-    from PyQt5.QtWidgets import QInputDialog
-    name, ok = QInputDialog.getText(panel, "添加大陆", "大陆名 (英文):")
-    if ok and name.strip():
-        panel.continent_add_requested.emit(name.strip())
+        lay.addStretch(1)
+        scroll.setWidget(page)
 
-def _on_rename_continent(panel):
-    from PyQt5.QtWidgets import QInputDialog
-    item = panel._continent_list.currentItem()
-    if item is None:
-        return
-    old = item.text().split(".")[1].strip().split("(")[0].strip() if "." in item.text() else ""
-    name, ok = QInputDialog.getText(panel, "重命名", "新名字:", text=old)
-    if ok and name.strip():
-        row = panel._continent_list.currentRow()
-        panel.continent_rename_requested.emit(row, name.strip())
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(scroll)
 
-def _on_remove_continent(panel):
-    row = panel._continent_list.currentRow()
-    if row >= 0:
-        panel.continent_remove_requested.emit(row)
+    # ── 槽函数 ──
+    def _on_add_continent(self) -> None:
+        name, ok = QInputDialog.getText(self, "添加大陆", "大陆名 (英文):")
+        if ok and name.strip():
+            self.continent_add_requested.emit(name.strip())
+
+    def _on_rename_continent(self) -> None:
+        item = self._continent_list.currentItem()
+        if item is None:
+            return
+        old = item.text().split(".")[1].strip().split("(")[0].strip() if "." in item.text() else ""
+        name, ok = QInputDialog.getText(self, "重命名", "新名字:", text=old)
+        if ok and name.strip():
+            row = self._continent_list.currentRow()
+            self.continent_rename_requested.emit(row, name.strip())
+
+    def _on_remove_continent(self) -> None:
+        row = self._continent_list.currentRow()
+        if row >= 0:
+            self.continent_remove_requested.emit(row)

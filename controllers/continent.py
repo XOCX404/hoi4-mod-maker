@@ -20,6 +20,13 @@ class ContinentController(BaseController):
         super().__init__(project, command_history)
         self.pick_on: bool = False
         self.pick_index: int = -1
+        # 始终监听省份重新生成
+        self.event_bus.subscribe("province_map_regenerated", self._on_province_regen)
+
+    def _on_province_regen(self, event) -> None:
+        """省份全量重新生成 → 清除大陆分配。"""
+        if not event.data.get("incremental"):
+            self.project.continent_mgr.clear()
 
     def activate(self) -> None:
         """进入大陆模式。"""

@@ -759,6 +759,8 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
         if self._selected_province_id in mapping:
             self._selected_province_id = mapping[self._selected_province_id]
         self._border_cache = None  # 省份变了，清缓存
+        if hasattr(self, '_border_base_pixmap'):
+            self._border_base_pixmap = None
         self._full_render()
         self._render_province_overlay()
         return True

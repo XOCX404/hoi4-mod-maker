@@ -22,6 +22,15 @@ class StateController(BaseController):
     def __init__(self, project: "Project", command_history: "CommandHistory") -> None:
         super().__init__(project, command_history)
         self.selected_state_id: int = 0
+        # 始终监听省份重新生成（不管当前模式）
+        self.event_bus.subscribe("province_map_regenerated", self._on_province_regen)
+
+    def _on_province_regen(self, event) -> None:
+        """省份全量重新生成 → 清除所有 State 数据。"""
+        if not event.data.get("incremental"):
+            self.project.state_mgr.clear()
+            self.selected_state_id = 0
+            self.event_bus.emit("state_changed", state_id=0, action="refresh")
 
     def activate(self) -> None:
         """进入 State 模式，刷新颜色图。"""

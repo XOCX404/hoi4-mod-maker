@@ -20,6 +20,13 @@ class StrategicRegionController(BaseController):
         super().__init__(project, command_history)
         self.pick_on: bool = False
         self.pick_rid: int = 0
+        # 始终监听省份重新生成
+        self.event_bus.subscribe("province_map_regenerated", self._on_province_regen)
+
+    def _on_province_regen(self, event) -> None:
+        """省份全量重新生成 → 清除战略区域。"""
+        if not event.data.get("incremental"):
+            self.project.strategic_region_mgr.clear()
 
     def activate(self) -> None:
         """进入战略区域模式。"""

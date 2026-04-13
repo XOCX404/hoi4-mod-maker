@@ -108,8 +108,15 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         self._gen_thread.start()
 
     def _on_generate_done(self, province_map, count: int) -> None:
+        was_incremental = getattr(self._gen_thread, '_incremental', False)
         self._canvas.province_map = province_map
         self._update_province_count()
+
+        # 发事件，级联清理由各 controller 自动处理
+        self._event_bus.emit(
+            "province_map_regenerated", incremental=was_incremental,
+        )
+
         self._status_info.setText(f"省份生成完成: {count} 个")
 
     def _on_generate_error(self, msg: str) -> None:

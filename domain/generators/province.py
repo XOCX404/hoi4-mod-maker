@@ -147,6 +147,12 @@ def generate_provinces(
         if fix_x_crossings(province_map) == 0:
             break
 
+    # 清理过小省份（< 8 像素）→ 合并到最大邻居，循环直到全部清除
+    for _ in range(10):
+        merged = _merge_tiny_provinces(province_map, min_pixels=8)
+        if merged == 0:
+            break
+
     # 压实 ID
     province_count = compact_province_ids(province_map)
     return province_map, province_count
@@ -508,9 +514,51 @@ def generate_provinces_incremental(
         if fix_x_crossings(result) == 0:
             break
 
+    # 清理过小省份（< 8 像素）→ 合并到最大邻居，循环直到全部清除
+    for _ in range(10):
+        merged = _merge_tiny_provinces(result, min_pixels=8)
+        if merged == 0:
+            break
+
     # 压实 ID
     province_count = compact_province_ids(result)
     return result, province_count
+
+
+def _merge_tiny_provinces(province_map: np.ndarray, min_pixels: int = 8) -> int:
+    """将像素数 < min_pixels 的省份合并到相邻最大省份。返回合并数量。"""
+    flat = province_map.ravel()
+    max_pid = int(province_map.max())
+    counts = np.bincount(flat, minlength=max_pid + 1)
+
+    tiny_pids = [pid for pid in range(1, max_pid + 1) if 0 < counts[pid] < min_pixels]
+    if not tiny_pids:
+        return 0
+
+    H, W = province_map.shape
+    merged = 0
+    for pid in tiny_pids:
+        ys, xs = np.where(province_map == pid)
+        if len(ys) == 0:
+            continue
+        # 找所有邻居省份
+        neighbors: dict[int, int] = {}
+        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            ny = np.clip(ys + dy, 0, H - 1)
+            nx = np.clip(xs + dx, 0, W - 1)
+            adj_ids = province_map[ny, nx]
+            for aid in np.unique(adj_ids):
+                aid = int(aid)
+                if aid != pid and aid > 0:
+                    neighbors[aid] = neighbors.get(aid, 0) + int(np.sum(adj_ids == aid))
+        if not neighbors:
+            continue
+        # 合并到接触面积最大的邻居
+        best = max(neighbors, key=neighbors.get)
+        province_map[ys, xs] = best
+        merged += 1
+
+    return merged
 
 
 def generate_province_colors(province_count: int) -> dict[int, tuple[int, int, int]]:

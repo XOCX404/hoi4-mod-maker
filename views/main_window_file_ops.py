@@ -109,7 +109,7 @@ class MainWindowFileOpsMixin:
         self._canvas.river_map = np.zeros((new_h, new_w), dtype=np.uint8)
         self._project.state_mgr.clear()
         self._project.country_mgr.clear()
-        self._undo_mgr.clear()
+        self._cmd_history.clear()
         self._update_province_count()
         self._canvas.refresh_display()
         self._status_info.setText(f"新项目已创建 ({new_w}×{new_h})")
@@ -162,8 +162,8 @@ class MainWindowFileOpsMixin:
                 strategic_region_mgr=self._project.strategic_region_mgr,
             )
             self._update_province_count()
-            self._refresh_state_list()
-            self._refresh_country_list()
+            self._app._refresh_state_list()
+            self._app._refresh_country_list()
             self._status_info.setText(f"项目已加载: {path}")
             # 记录到最近项目 + 切换到编辑器
             from views.welcome_page import save_recent_project
@@ -243,14 +243,23 @@ class MainWindowFileOpsMixin:
             QMessageBox.warning(self, tr("dlg_error"), f"读取图片失败：{e}")
             return
 
-        self._undo_mgr.push_snapshot(
-            "从图片提取陆海", {"tile_map": self._canvas.tile_map.copy()}
-        )
+        # 通过 BrushStrokeCommand 记录快照（统一走 CommandHistory）
+        from commands.land.brush_stroke import BrushStrokeCommand
+        before = BrushStrokeCommand.snapshot_arrays({"tile_map": self._canvas.tile_map})
 
         new_tm = np.where(land_mask, TILE_LAND, TILE_SEA).astype(np.uint8)
         self._canvas.tile_map[:] = new_tm
         from domain.generators.province import auto_classify_water
         auto_classify_water(self._canvas.tile_map)
+
+        # 提交撤销命令
+        after = BrushStrokeCommand.snapshot_arrays({"tile_map": self._canvas.tile_map})
+        cmd = BrushStrokeCommand("从图片提取陆海", before, after)
+        cmd.set_target_arrays({"tile_map": self._canvas.tile_map})
+        self._cmd_history._undo_stack.append(cmd)
+        self._cmd_history._redo_stack.clear()
+        self._cmd_history._notify()
+
         self._canvas.refresh_display()
 
         from data.constants import MAP_WIDTH, MAP_HEIGHT
@@ -309,7 +318,7 @@ class MainWindowFileOpsMixin:
 
         self._project.state_mgr.clear()
         self._project.country_mgr.clear()
-        self._undo_mgr.clear()
+        self._cmd_history.clear()
 
         self._canvas.refresh_display()
         self._update_province_count()

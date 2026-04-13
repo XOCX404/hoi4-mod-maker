@@ -223,6 +223,30 @@ def fill_default_state_data(
     filled_count = 0
     rng = np.random.RandomState(42)
 
+    # 向量化预计算：每个省份的陆地像素数 + 地形分布（一次全图扫描代替 N 次）
+    max_pid = int(province_map.max())
+    flat_pm = province_map.ravel()
+    flat_tm = tile_map.ravel()
+    flat_land = (flat_tm == TILE_LAND).astype(np.int32)
+    pid_land_count = np.bincount(flat_pm, weights=flat_land, minlength=max_pid + 1)
+
+    # 每个 (province_id, terrain_index) 的像素数
+    pid_terrain_count: dict[int, dict[int, int]] = {}
+    if terrain_map is not None:
+        flat_ter = terrain_map.ravel()
+        land_mask_flat = flat_land.astype(bool)
+        land_pids = flat_pm[land_mask_flat]
+        land_ters = flat_ter[land_mask_flat]
+        # 用 (pid * 256 + terrain_idx) 编码为单一键做 bincount
+        combined = land_pids.astype(np.int64) * 256 + land_ters.astype(np.int64)
+        combined_counts = np.bincount(combined)
+        for code in np.nonzero(combined_counts)[0]:
+            pid_code = int(code // 256)
+            ter_code = int(code % 256)
+            if pid_code not in pid_terrain_count:
+                pid_terrain_count[pid_code] = {}
+            pid_terrain_count[pid_code][ter_code] = int(combined_counts[code])
+
     for sid, state in state_mgr.states.items():
         has_resources = bool(state.resources and any(v > 0 for v in state.resources.values()))
         has_buildings = bool(state.buildings and any(v > 0 for v in state.buildings.values()))
@@ -230,18 +254,18 @@ def fill_default_state_data(
         if has_resources and has_buildings:
             continue
 
-        # 分析地形组成
+        # 用预计算数据汇总 state 的地形组成
         terrain_counts: dict[str, int] = {}
         total_land_pixels = 0
         for pid in state.provinces:
-            mask = (province_map == pid) & (tile_map == TILE_LAND)
-            land_px = int(np.sum(mask))
+            if pid > max_pid:
+                continue
+            land_px = int(pid_land_count[pid])
             total_land_pixels += land_px
-            if terrain_map is not None and land_px > 0:
-                indices = terrain_map[mask]
-                for idx in np.unique(indices):
-                    ttype = PALETTE_TO_TYPE.get(int(idx), "plains")
-                    terrain_counts[ttype] = terrain_counts.get(ttype, 0) + int(np.sum(indices == idx))
+            if land_px > 0 and pid in pid_terrain_count:
+                for ter_idx, count in pid_terrain_count[pid].items():
+                    ttype = PALETTE_TO_TYPE.get(ter_idx, "plains")
+                    terrain_counts[ttype] = terrain_counts.get(ttype, 0) + count
 
         if total_land_pixels == 0:
             continue
