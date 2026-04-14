@@ -110,12 +110,9 @@ class ProvinceController(BaseController):
         split_mask = np.zeros_like(province_map, dtype=bool)
         split_mask[ys[split_sel], xs[split_sel]] = True
 
-        # 通过 Command 执行
+        # 通过 Command 执行（内含连通性修复）
         cmd = SplitProvinceCommand(map_data, pid, new_pid, split_mask)
         self.history.execute(cmd)
-
-        # 切割后修复连通性：检查两个省份是否各自连通
-        self._fix_split_connectivity(pid, new_pid, province_map)
 
         self.project.mark_dirty()
         self._emit_status(f"省份 {pid} 已切割，新省份 ID: {new_pid}")
@@ -123,23 +120,6 @@ class ProvinceController(BaseController):
         self.event_bus.emit("province_count_changed", count=int(province_map.max()))
         return True
 
-    def _fix_split_connectivity(self, pid_a: int, pid_b: int, province_map) -> None:
-        """切割后修复连通性：如果某个省份分成了多块，把小块合到另一个省份。"""
-        from scipy.ndimage import label as _label
-
-        for pid, other_pid in [(pid_a, pid_b), (pid_b, pid_a)]:
-            mask = province_map == pid
-            labeled, n_comp = _label(mask)
-            if n_comp <= 1:
-                continue
-            # 多个连通分量 → 保留最大的，其余合到 other_pid
-            comp_sizes = []
-            for c in range(1, n_comp + 1):
-                comp_sizes.append((int(np.sum(labeled == c)), c))
-            comp_sizes.sort(reverse=True)
-            # 最大分量保留，其余归 other_pid
-            for _, c in comp_sizes[1:]:
-                province_map[labeled == c] = other_pid
 
     def _handle_merge_click(self, pid: int) -> None:
         """合并模式下点击省份。"""

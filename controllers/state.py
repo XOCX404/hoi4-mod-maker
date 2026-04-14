@@ -128,17 +128,6 @@ class StateController(BaseController):
                 action="selected",
             )
 
-    def change_property(self, state_id: int, prop: str, value: object) -> None:
-        """修改 State 属性。"""
-        state_mgr = self.project.state_mgr
-        state = state_mgr.get_state(state_id)
-        if not state:
-            return
-        cmd = SetStatePropertyCommand(state_mgr, state_id, prop, value)
-        self.history.execute(cmd)
-        self.project.mark_dirty()
-        self.event_bus.emit("state_changed", state_id=state_id, action="modified", property=prop)
-
     # ── 批量建州 ──
 
     def create_state_from_provinces(self, province_ids: list[int]) -> int:
@@ -155,24 +144,16 @@ class StateController(BaseController):
                 old_state = state_mgr.get_state(old_sid)
                 if old_state and pid in old_state.provinces:
                     old_state.provinces.remove(pid)
+                    state_mgr._province_to_state.pop(pid, None)
 
-        # 创建新州
-        new_sid = max(state_mgr.states.keys(), default=0) + 1
-        from domain.managers.state import StateData
-        new_state = StateData(
-            id=new_sid,
-            name=f"STATE_{new_sid}",
-            provinces=list(province_ids),
-        )
-        state_mgr.states[new_sid] = new_state
-        # 更新省份→州索引
-        for pid in province_ids:
-            state_mgr._province_to_state[pid] = new_sid
+        # 通过正规接口创建新州（自动分配 ID + 更新索引）
+        new_state = state_mgr.create_state(provinces=list(province_ids))
+        new_state.name = f"STATE_{new_state.id}"
 
         self.project.mark_dirty()
-        self._emit_status(f"创建州 {new_sid}（{len(province_ids)} 个省份）")
-        self.event_bus.emit("state_changed", state_id=new_sid, action="refresh")
-        return new_sid
+        self._emit_status(f"创建州 {new_state.id}（{len(province_ids)} 个省份）")
+        self.event_bus.emit("state_changed", state_id=new_state.id, action="refresh")
+        return new_state.id
 
     def change_property(self, state_id: int, prop: str, value: Any) -> None:
         """修改 State 属性（通过 Command 支持撤销）。"""

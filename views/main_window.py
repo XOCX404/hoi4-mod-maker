@@ -579,11 +579,14 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
             QMessageBox.warning(self, "批量建州", "请先点击省份选择区域")
             return
         ctrl = self._controllers["state"]
+        n = len(pids)
         new_sid = ctrl.create_state_from_provinces(pids)
+        # 重置模式
+        self._batch_state_mode = False
         self._batch_state_pids = []
         if new_sid > 0:
             self._canvas.refresh_display()
-            QMessageBox.information(self, "批量建州", f"已创建州 {new_sid}（{len(pids)} 个省份）")
+            QMessageBox.information(self, "批量建州", f"已创建州 {new_sid}（{n} 个省份）")
 
     # ═══════════════════════ 战略区域从州创建 ═══════════════════
 
@@ -603,11 +606,14 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
             QMessageBox.warning(self, "创建战略区域", "请先点击地图选择州")
             return
         ctrl = self._controllers["strategic_region"]
+        n = len(sids)
         new_rid = ctrl.create_from_states(sids)
+        # 重置模式
+        self._sr_from_states_mode = False
         self._sr_selected_states = []
         if new_rid > 0:
             self._canvas.refresh_display()
-            QMessageBox.information(self, "创建战略区域", f"已创建战略区域 #{new_rid}（包含 {len(sids)} 个州）")
+            QMessageBox.information(self, "创建战略区域", f"已创建战略区域 #{new_rid}（包含 {n} 个州）")
 
     # ═══════════════════════ State 管理 ═══════════════════════
 
