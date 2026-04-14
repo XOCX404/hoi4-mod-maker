@@ -75,9 +75,12 @@ class ProvinceController(BaseController):
         else:
             self._emit_status("回到查看模式")
 
-    def split_selected(self) -> bool:
-        """切割当前选中的省份。返回是否成功。"""
+    def split_selected(self, axis: str = "horizontal") -> bool:
+        """切割当前选中的省份。
+        axis: "horizontal"(上下切) / "vertical"(左右切)
+        返回是否成功。"""
         import numpy as np
+        from scipy.ndimage import label as _label
 
         pid = self.selected_province_id
         if pid <= 0:
@@ -90,28 +93,53 @@ class ProvinceController(BaseController):
         mask = province_map == pid
         pixels = int(np.sum(mask))
         if pixels < 16:
-            self._emit_status("切割失败（省份太小）")
+            self._emit_status("切割失败（省份太小，需至少16像素）")
             return False
 
-        # 找省份像素坐标，按中位数分为上下两半
         ys, xs = np.where(mask)
-        mid_y = int(np.median(ys))
         new_pid = int(province_map.max()) + 1
 
-        # 构建要分给新省份的像素 mask
-        split_mask = np.zeros_like(province_map, dtype=bool)
-        upper = ys <= mid_y
-        split_mask[ys[upper], xs[upper]] = True
+        # 按轴切割
+        if axis == "vertical":
+            mid = int(np.median(xs))
+            split_sel = xs <= mid
+        else:
+            mid = int(np.median(ys))
+            split_sel = ys <= mid
 
-        # 通过 Command 执行（支持撤销）
+        split_mask = np.zeros_like(province_map, dtype=bool)
+        split_mask[ys[split_sel], xs[split_sel]] = True
+
+        # 通过 Command 执行
         cmd = SplitProvinceCommand(map_data, pid, new_pid, split_mask)
         self.history.execute(cmd)
+
+        # 切割后修复连通性：检查两个省份是否各自连通
+        self._fix_split_connectivity(pid, new_pid, province_map)
 
         self.project.mark_dirty()
         self._emit_status(f"省份 {pid} 已切割，新省份 ID: {new_pid}")
         self._emit_render(full=True)
         self.event_bus.emit("province_count_changed", count=int(province_map.max()))
         return True
+
+    def _fix_split_connectivity(self, pid_a: int, pid_b: int, province_map) -> None:
+        """切割后修复连通性：如果某个省份分成了多块，把小块合到另一个省份。"""
+        from scipy.ndimage import label as _label
+
+        for pid, other_pid in [(pid_a, pid_b), (pid_b, pid_a)]:
+            mask = province_map == pid
+            labeled, n_comp = _label(mask)
+            if n_comp <= 1:
+                continue
+            # 多个连通分量 → 保留最大的，其余合到 other_pid
+            comp_sizes = []
+            for c in range(1, n_comp + 1):
+                comp_sizes.append((int(np.sum(labeled == c)), c))
+            comp_sizes.sort(reverse=True)
+            # 最大分量保留，其余归 other_pid
+            for _, c in comp_sizes[1:]:
+                province_map[labeled == c] = other_pid
 
     def _handle_merge_click(self, pid: int) -> None:
         """合并模式下点击省份。"""
