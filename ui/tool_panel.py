@@ -221,8 +221,8 @@ class ToolPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumWidth(280)
-        self.setMaximumWidth(500)
+        self.setMinimumWidth(340)
+        self.setMaximumWidth(520)
         self.resize(320, self.height())
         self.setStyleSheet(f"background: {_BG};")
         self._init_ui()
