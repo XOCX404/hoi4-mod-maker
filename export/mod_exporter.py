@@ -236,10 +236,11 @@ def export_full_mod(
         else:
             if region_list is not None:
                 states = _split_states_by_region(region_list, set(land_ids))
-            _write_states(states, tag, province_map, output_dir)
+            if states is not None:
+                _write_states(states, tag, province_map, output_dir)
 
     # === 补给系统 ===
-    if _enabled("supply"):
+    if _enabled("supply") and states is not None:
         if supply_mgr is not None and supply_mgr.count() > 0:
             from export.writers.map.supply_nodes import write_supply_nodes_txt
             write_supply_nodes_txt(output_dir, supply_mgr=supply_mgr)
@@ -307,15 +308,16 @@ def export_full_mod(
         with open(os.path.join(tut_dir, "tutorial.txt"), "w", encoding="utf-8") as f:
             f.write("tutorial = { }\n")
 
-    # === 导出后校验 ===
+    # === 导出后校验（只检查已启用模块的文件）===
     if _enabled("map"):
-        _verify_non_empty(output_dir)
+        _verify_non_empty(output_dir, scope)
 
 
-def _verify_non_empty(output_dir):
-    """校验关键地图/历史文件存在且非空。
-    任一缺失或空文件都会导致 HOI4 启动或进图崩溃（柴 TD 经验）。
-    """
+def _verify_non_empty(output_dir, scope=None):
+    """校验关键文件存在且非空。只检查已启用模块的文件。"""
+    _s = scope or {}
+    def _on(key): return _s.get(key, True)
+
     critical_files = [
         "map/definition.csv",
         "map/provinces.bmp",
@@ -324,10 +326,10 @@ def _verify_non_empty(output_dir):
         "map/rivers.bmp",
         "map/trees.bmp",
         "map/continent.txt",
-        "map/supply_nodes.txt",
-        "map/railways.txt",
         "map/buildings.txt",
     ]
+    if _on("supply"):
+        critical_files += ["map/supply_nodes.txt", "map/railways.txt"]
     missing = []
     for rel in critical_files:
         p = os.path.join(output_dir, rel)

@@ -57,8 +57,19 @@ def check_project_readiness(project, canvas) -> list[CheckItem]:
             "陆地", "missing", "没有陆地像素，请先在 Land 模式画地图", False))
         return items
 
-    items.append(CheckItem(
-        "省份", "ok", f"共 {province_count} 个省份", False, province_count))
+    # 检查 ID 连续性（合并省份后可能有空洞）
+    existing_ids = set(int(x) for x in np.unique(pm) if x > 0)
+    expected_ids = set(range(1, province_count + 1))
+    gap_ids = expected_ids - existing_ids
+    if gap_ids:
+        items.append(CheckItem(
+            "省份", "warning",
+            f"共 {len(existing_ids)} 个省份，但 ID 有 {len(gap_ids)} 个空洞"
+            f"（被吞并的省份需要用切割或增量生成补回来，否则导出后 HOI4 属性会错位）",
+            False, len(existing_ids)))
+    else:
+        items.append(CheckItem(
+            "省份", "ok", f"共 {province_count} 个省份", False, province_count))
 
     # 2. State
     state_mgr = project.state_mgr

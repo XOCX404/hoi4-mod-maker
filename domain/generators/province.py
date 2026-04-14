@@ -689,7 +689,7 @@ def generate_provinces_in_region(
                 if not state.provinces:
                     state_mgr.states.pop(sid, None)
         if strategic_region_mgr:
-            for r in strategic_region_mgr._regions.values():
+            for r in strategic_region_mgr.regions.values():
                 r.province_ids = [p for p in r.province_ids if p not in fully_removed]
         if country_mgr:
             for tag, country in country_mgr.countries.items():

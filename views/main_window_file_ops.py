@@ -277,7 +277,7 @@ class MainWindowFileOpsMixin:
         self._project.state_mgr.clear()
         self._project.country_mgr.clear()
         self._project.continent_mgr.clear()
-        self._project.strategic_region_mgr._regions.clear()
+        self._project.strategic_region_mgr.clear()
         self._cmd_history.clear()
 
         # 让 canvas 使用同一个 map_data

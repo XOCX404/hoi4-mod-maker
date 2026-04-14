@@ -76,11 +76,9 @@ class MergeProvincesCommand(Command):
                     state.provinces.remove(self._pid_remove)
                 state.victory_points.pop(self._pid_remove, None)
 
-        # 压实 ID
-        self._compact_mapping = self._map_data.compact_with_references(
-            state_mgr=self._state_mgr,
-            country_mgr=self._country_mgr,
-        )
+        # 不压实 ID — 保留空洞，让用户用切割/增量生成补回来
+        # 导出时检查 ID 连续性，有空洞则提示
+        self._compact_mapping = {}
 
     def undo(self) -> None:
         """恢复被合并省份的像素和引用。"""

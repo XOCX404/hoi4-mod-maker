@@ -615,9 +615,9 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         from data.constants import set_map_size
         set_map_size(new_w, new_h)
 
-        # 创建项目并填充数据
-        self._project.new_project(new_w, new_h)
-        md = self._project.map_data
+        # 构建 MapData（不走 new_project 避免浪费 250MB 临时数组）
+        from domain.map_data import MapData
+        md = MapData()
         md.tile_map = result["tile_map"]
         md.province_map = result["province_map"]
         md.terrain_map = result["terrain_map"]
@@ -625,6 +625,12 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         if result["river_map"] is not None:
             md.river_map = result["river_map"]
         md.provincial_terrain = result.get("provincial_terrain", {})
+        self._project.map_data = md
+        self._project.state_mgr.clear()
+        self._project.country_mgr.clear()
+        self._project.continent_mgr.clear()
+        self._project.strategic_region_mgr.clear()
+        self._project._dirty = False
 
         self._canvas.set_map_data(md)
         self._canvas._scene.setSceneRect(0, 0, new_w, new_h)

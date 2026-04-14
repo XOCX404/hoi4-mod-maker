@@ -4,19 +4,7 @@ import numpy as np
 from data.constants import MAP_WIDTH, MAP_HEIGHT
 
 
-def _safe_coord(pid, province_map, pid_count, sum_x, sum_y):
-    """返回保证在该省份像素内的坐标 (cx, cy)。"""
-    cx = sum_x[pid] / pid_count[pid]
-    cy = sum_y[pid] / pid_count[pid]
-    icy, icx = int(round(cy)), int(round(cx))
-    h, w = province_map.shape
-    if 0 <= icy < h and 0 <= icx < w and province_map[icy, icx] == pid:
-        return cx, cy
-    ys, xs = np.where(province_map == pid)
-    if len(ys) == 0:
-        return cx, cy
-    mid = len(ys) // 2
-    return float(xs[mid]), float(ys[mid])
+from export.writers.map._coords import safe_coord as _safe_coord
 
 
 def write_positions_txt(province_map: np.ndarray,

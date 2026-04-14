@@ -1,0 +1,10 @@
+# 崩溃时间: 2026-04-12T16:19:14.382626
+# Python: 3.10.11 (tags/v3.10.11:7d4cc5a, Apr  5 2023, 00:38:17) [MSC v.1929 64 bit (AMD64)]
+# Platform: win32
+
+Traceback (most recent call last):
+  File "C:\Users\Administrator.SKY-20180310BMB\Desktop\MOD\hoi4_map_maker\views\main_window.py", line 593, in _on_province_right_clicked_at
+    self._context_menu.show(pid, QPoint(screen_x, screen_y))
+  File "C:\Users\Administrator.SKY-20180310BMB\Desktop\MOD\hoi4_map_maker\views\context_menu.py", line 66, in show
+    tag = self._project.country_mgr.get_state_owner(state_id)
+AttributeError: 'CountryManager' object has no attribute 'get_state_owner'
