@@ -27,15 +27,16 @@ class OverlayMixin:
             self._border_cache = None
             self._border_base_pixmap = None
             return
-        borders = np.zeros((MAP_HEIGHT, MAP_WIDTH), dtype=bool)
+        h, w = self._province_map.shape
+        borders = np.zeros((h, w), dtype=bool)
         borders[:-1, :] |= self._province_map[:-1, :] != self._province_map[1:, :]
         borders[:, :-1] |= self._province_map[:, :-1] != self._province_map[:, 1:]
         self._border_cache = borders
         # 生成 base pixmap（只做一次，不用每次 copy 46MB）
-        rgba = np.zeros((MAP_HEIGHT, MAP_WIDTH, 4), dtype=np.uint8)
+        rgba = np.zeros((h, w, 4), dtype=np.uint8)
         rgba[borders, 3] = 180
-        img = QImage(rgba.data, MAP_WIDTH, MAP_HEIGHT,
-                     MAP_WIDTH * 4, QImage.Format.Format_ARGB32)
+        img = QImage(rgba.data, w, h,
+                     w * 4, QImage.Format.Format_ARGB32)
         img._ref = rgba
         self._border_base_pixmap = QPixmap.fromImage(img)
 
