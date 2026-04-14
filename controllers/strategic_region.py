@@ -111,3 +111,41 @@ class StrategicRegionController(BaseController):
         if r:
             r.naval_terrain = naval
             self.project.mark_dirty()
+
+    def create_from_states(self, state_ids: list[int]) -> int:
+        """把选中的州合并成一个战略区域。返回新 region ID。"""
+        if not state_ids:
+            return 0
+
+        sr_mgr = self.project.strategic_region_mgr
+        state_mgr = self.project.state_mgr
+
+        # 收集选中州的所有省份
+        province_ids: list[int] = []
+        for sid in state_ids:
+            state = state_mgr.get_state(sid)
+            if state:
+                province_ids.extend(state.provinces)
+
+        if not province_ids:
+            self._emit_status("选中的州没有省份")
+            return 0
+
+        # 从旧战略区域移除这些省份
+        for pid in province_ids:
+            old_rid = sr_mgr.get_region_of_province(pid)
+            if old_rid > 0:
+                old_r = sr_mgr.get(old_rid)
+                if old_r and pid in old_r.province_ids:
+                    old_r.province_ids.remove(pid)
+
+        # 创建新战略区域
+        r = sr_mgr.create_region()
+        r.province_ids = province_ids
+        self.project.mark_dirty()
+
+        state_names = ", ".join(str(s) for s in state_ids[:5])
+        if len(state_ids) > 5:
+            state_names += f"... (+{len(state_ids)-5})"
+        self._emit_status(f"创建战略区域 #{r.id}（包含州 {state_names}，{len(province_ids)} 个省份）")
+        return r.id

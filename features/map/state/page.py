@@ -33,6 +33,8 @@ class StatePage(QWidget):
     state_selected = pyqtSignal(int)
     state_property_changed = pyqtSignal(int, str, object)
     state_detail_requested = pyqtSignal(int)
+    batch_create_state_toggled = pyqtSignal(bool)
+    batch_create_state_confirmed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -61,6 +63,25 @@ class StatePage(QWidget):
         self._state_per_spin.setStyleSheet(_SPINBOX_STYLE)
         spin_row.addWidget(self._state_per_spin)
         lay.addLayout(spin_row)
+
+        # 批量建州
+        batch_box = _make_section("批量建州")
+        self._batch_btn = QPushButton("选择省份建州")
+        self._batch_btn.setCheckable(True)
+        self._batch_btn.setStyleSheet(_PRIMARY_BTN_STYLE)
+        self._batch_btn.setToolTip("开启后点击省份多选，然后点确认创建新州")
+        self._batch_btn.toggled.connect(self.batch_create_state_toggled.emit)
+        batch_box.layout().addWidget(self._batch_btn)
+
+        self._batch_confirm_btn = QPushButton("确认创建新州")
+        self._batch_confirm_btn.setStyleSheet(
+            "QPushButton { background: #22c55e; color: white; padding: 6px;"
+            " border-radius: 4px; font-weight: bold; }"
+            "QPushButton:hover { background: #2ad66a; }"
+        )
+        self._batch_confirm_btn.clicked.connect(self.batch_create_state_confirmed.emit)
+        batch_box.layout().addWidget(self._batch_confirm_btn)
+        lay.addWidget(batch_box)
 
         # State 列表
         list_box = _make_section("State 列表")

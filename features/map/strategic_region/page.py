@@ -29,6 +29,8 @@ class StrategicRegionPage(QWidget):
     strategic_region_weather_changed = pyqtSignal(str)
     strategic_region_naval_changed = pyqtSignal(str)
     strategic_region_pick_toggled = pyqtSignal(bool)
+    create_from_states_toggled = pyqtSignal(bool)
+    create_from_states_confirmed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -56,6 +58,23 @@ class StrategicRegionPage(QWidget):
         auto_btn.setStyleSheet(_PRIMARY_BTN_STYLE)
         auto_btn.clicked.connect(lambda: self.strategic_region_auto_requested.emit())
         lay.addWidget(auto_btn)
+
+        # 从州创建
+        self._from_states_btn = QPushButton("选择州 → 创建战略区域")
+        self._from_states_btn.setCheckable(True)
+        self._from_states_btn.setStyleSheet(_PRIMARY_BTN_STYLE)
+        self._from_states_btn.setToolTip("开启后点击地图选择多个州，然后点确认合并为一个战略区域")
+        self._from_states_btn.toggled.connect(self.create_from_states_toggled.emit)
+        lay.addWidget(self._from_states_btn)
+
+        self._from_states_confirm_btn = QPushButton("确认创建战略区域")
+        self._from_states_confirm_btn.setStyleSheet(
+            "QPushButton { background: #22c55e; color: white; padding: 6px;"
+            " border-radius: 4px; font-weight: bold; }"
+            "QPushButton:hover { background: #2ad66a; }"
+        )
+        self._from_states_confirm_btn.clicked.connect(self.create_from_states_confirmed.emit)
+        lay.addWidget(self._from_states_confirm_btn)
 
         # Region 列表
         self._sr_list = QListWidget()

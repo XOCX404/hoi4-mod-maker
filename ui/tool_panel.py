@@ -172,6 +172,8 @@ class ToolPanel(QWidget):
     state_selected = pyqtSignal(int)
     state_property_changed = pyqtSignal(int, str, object)
     state_detail_requested = pyqtSignal(int)
+    batch_create_state_toggled = pyqtSignal(bool)
+    batch_create_state_confirmed = pyqtSignal()
     create_country_requested = pyqtSignal()
     quick_create_country_requested = pyqtSignal(str, str, str)
     country_selected = pyqtSignal(str)
@@ -204,6 +206,8 @@ class ToolPanel(QWidget):
     strategic_region_weather_changed = pyqtSignal(str)
     strategic_region_naval_changed = pyqtSignal(str)
     strategic_region_pick_toggled = pyqtSignal(bool)
+    create_from_states_toggled = pyqtSignal(bool)
+    create_from_states_confirmed = pyqtSignal()
 
     # 总览贴图信号
     colormap_color_changed = pyqtSignal(str, int, int, int)
@@ -380,6 +384,8 @@ class ToolPanel(QWidget):
         p.state_selected.connect(self.state_selected)
         p.state_property_changed.connect(self.state_property_changed)
         p.state_detail_requested.connect(self.state_detail_requested)
+        p.batch_create_state_toggled.connect(self.batch_create_state_toggled)
+        p.batch_create_state_confirmed.connect(self.batch_create_state_confirmed)
 
     def _connect_country_signals(self) -> None:
         p = self._country_page
@@ -406,6 +412,8 @@ class ToolPanel(QWidget):
         p.strategic_region_weather_changed.connect(self.strategic_region_weather_changed)
         p.strategic_region_naval_changed.connect(self.strategic_region_naval_changed)
         p.strategic_region_pick_toggled.connect(self.strategic_region_pick_toggled)
+        p.create_from_states_toggled.connect(self.create_from_states_toggled)
+        p.create_from_states_confirmed.connect(self.create_from_states_confirmed)
 
     def _connect_logistics_signals(self) -> None:
         p = self._logistics_page
