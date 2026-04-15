@@ -19,14 +19,14 @@ _ACCENT = "#6c6cf0"
 
 _SETTINGS_KEY = "GuideDialog/dont_show"
 
-# 6 个步骤的 i18n key
+# 6 个步骤: (icon, title_key, desc_key)
 _STEPS = [
-    ("guide_step1_title", "guide_step1_desc"),
-    ("guide_step2_title", "guide_step2_desc"),
-    ("guide_step3_title", "guide_step3_desc"),
-    ("guide_step4_title", "guide_step4_desc"),
-    ("guide_step5_title", "guide_step5_desc"),
-    ("guide_step6_title", "guide_step6_desc"),
+    ("\U0001F3D6", "guide_step1_title", "guide_step1_desc"),   # 🏖 画大陆
+    ("\U0001F9E9", "guide_step2_title", "guide_step2_desc"),   # 🧩 生成省份
+    ("\U000026F0", "guide_step3_title", "guide_step3_desc"),   # ⛰ 地形高度
+    ("\U0001F3F3", "guide_step4_title", "guide_step4_desc"),   # 🏳 建州国家
+    ("\U0001F6E4", "guide_step5_title", "guide_step5_desc"),   # 🛤 后勤
+    ("\U0001F680", "guide_step6_title", "guide_step6_desc"),   # 🚀 导出
 ]
 
 
@@ -83,8 +83,8 @@ class GuideDialog(QDialog):
         left_lay.setContentsMargins(0, 12, 0, 12)
         left_lay.setSpacing(0)
 
-        for i, (title_key, _) in enumerate(_STEPS):
-            lbl = QLabel(f"  {i + 1}. {tr(title_key)}")
+        for i, (icon, title_key, _) in enumerate(_STEPS):
+            lbl = QLabel(f"  {icon} {tr(title_key)}")
             lbl.setFixedHeight(36)
             lbl.setStyleSheet(f"color: {_DIM}; font-size: 13px; padding-left: 12px;")
             left_lay.addWidget(lbl)
@@ -182,10 +182,10 @@ class GuideDialog(QDialog):
 
     def _refresh(self) -> None:
         """刷新当前步骤显示。"""
-        title_key, desc_key = _STEPS[self._current]
+        icon, title_key, desc_key = _STEPS[self._current]
 
         self._step_num.setText(tr("guide_step_n", self._current + 1, len(_STEPS)))
-        self._step_title.setText(tr(title_key))
+        self._step_title.setText(f"{icon}  {tr(title_key)}")
         self._step_desc.setText(tr(desc_key))
 
         # 高亮当前步骤
