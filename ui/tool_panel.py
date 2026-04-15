@@ -152,7 +152,12 @@ class ToolPanel(QWidget):
     validate_requested = pyqtSignal()
     quick_init_requested = pyqtSignal()
     smooth_coast_requested = pyqtSignal()
-    density_paint_toggled = pyqtSignal(bool)
+
+    # 密度模式信号
+    density_value_changed = pyqtSignal(float)
+    density_brush_size_changed = pyqtSignal(int)
+    density_soft_edge_changed = pyqtSignal(int)
+    density_clear_requested = pyqtSignal()
     auto_terrain_requested = pyqtSignal()
     terrain_brush_size_changed = pyqtSignal(int)
     terrain_soft_edge_changed = pyqtSignal(bool)
@@ -238,6 +243,7 @@ class ToolPanel(QWidget):
         self._mode_tabs = _GroupedModeBar([
             (tr("group_map_drawing"), [
                 ("land", tr("mode_land")),
+                ("density", tr("mode_density")),
                 ("province", tr("mode_province")),
                 ("height", tr("mode_height")),
                 ("terrain", tr("mode_terrain")),
@@ -293,6 +299,7 @@ class ToolPanel(QWidget):
     def _create_pages(self) -> None:
         """实例化各 page 类, 加入 stack, 连接信号转发."""
         from features.map.land.page import LandPage
+        from features.map.density.page import DensityPage
         from features.map.province.page import ProvincePage
         from features.map.terrain.page import TerrainPage
         from features.map.height.page import HeightPage
@@ -307,6 +314,7 @@ class ToolPanel(QWidget):
 
         # 创建实例
         self._land_page = LandPage()
+        self._density_page = DensityPage()
         self._province_page = ProvincePage()
         self._terrain_page = TerrainPage()
         self._height_page = HeightPage()
@@ -322,6 +330,7 @@ class ToolPanel(QWidget):
         # 按 mode_id 顺序加入 stack
         page_list = [
             ("land", self._land_page),
+            ("density", self._density_page),
             ("province", self._province_page),
             ("height", self._height_page),
             ("terrain", self._terrain_page),
@@ -344,6 +353,7 @@ class ToolPanel(QWidget):
 
         # ── 信号转发 ──
         self._connect_land_signals()
+        self._connect_density_signals()
         self._connect_province_signals()
         self._connect_terrain_signals()
         self._connect_height_signals()
@@ -365,7 +375,13 @@ class ToolPanel(QWidget):
         p.validate_requested.connect(self.validate_requested)
         p.quick_init_requested.connect(self.quick_init_requested)
         p.smooth_coast_requested.connect(self.smooth_coast_requested)
-        p.density_paint_toggled.connect(self.density_paint_toggled)
+
+    def _connect_density_signals(self) -> None:
+        p = self._density_page
+        p.density_value_changed.connect(self.density_value_changed)
+        p.density_brush_size_changed.connect(self.density_brush_size_changed)
+        p.density_soft_edge_changed.connect(self.density_soft_edge_changed)
+        p.density_clear_requested.connect(self.density_clear_requested)
 
     def _connect_province_signals(self) -> None:
         p = self._province_page

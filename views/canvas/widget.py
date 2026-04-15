@@ -551,6 +551,7 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
             "country": self._render_country_mode,
             "river": self._render_river_mode,
             "logistics": self._render_logistics_mode,
+            "density": self._render_land_mode,
             "continent": self._render_land_mode,
             "strategic_region": self._render_land_mode,
             "colormap": self._render_land_mode,
@@ -560,6 +561,8 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
         self._update_pixmap_from_buffer()
         # VP 叠加层可见性切换（不重绘，用缓存）
         self._update_vp_visibility()
+        # 密度叠加层：density 模式自动显示
+        self.set_density_overlay_visible(self._display_mode == "density")
 
     def _partial_render(self, x0: int, y0: int, x1: int, y1: int) -> None:
         """局部渲染指定矩形区域（根据当前模式）"""
@@ -572,6 +575,7 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
             "country": self._partial_render_country,
             "river": self._partial_render_river,
             "logistics": self._partial_render_logistics,
+            "density": self._partial_render_land,
             "continent": self._partial_render_land,
             "strategic_region": self._partial_render_land,
             "colormap": self._partial_render_land,
@@ -828,16 +832,30 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
 
         mode = self._display_mode
 
-        if mode == "land":
-            # 密度画笔子模式
-            if getattr(self, '_density_overlay_visible', False):
+        if mode in ("land", "density"):
+            # 密度画笔模式
+            if self._display_mode == "density":
                 dm = getattr(self._map_data, 'density_map', None) if self._map_data else None
                 if dm is not None:
                     import numpy as np
-                    yy, xx = np.ogrid[y0:y1, x0:x1]
-                    circle = (yy - cy) ** 2 + (xx - cx) ** 2 <= r * r
-                    dv = getattr(self, '_density_paint_value', 1.0)
-                    dm[y0:y1, x0:x1][circle] = dv
+                    # 用密度专属画笔大小
+                    dr = getattr(self, '_density_brush_size', 30) // 2
+                    dy0, dy1 = max(0, cy - dr), min(self.map_h, cy + dr + 1)
+                    dx0, dx1 = max(0, cx - dr), min(self.map_w, cx + dr + 1)
+                    yy, xx = np.ogrid[dy0:dy1, dx0:dx1]
+                    dist_sq = (yy - cy) ** 2 + (xx - cx) ** 2
+                    r_sq = dr * dr
+                    circle = dist_sq <= r_sq
+                    dv = getattr(self, '_density_paint_value', 0.8)
+                    soft = getattr(self, '_density_soft_edge', 0.5)
+                    if soft > 0.01:
+                        # 软边缘：高斯衰减混合
+                        dist_norm = np.sqrt(dist_sq[circle].astype(np.float32)) / max(dr, 1)
+                        falloff = np.exp(-dist_norm * dist_norm / (2 * soft * soft))
+                        old_vals = dm[dy0:dy1, dx0:dx1][circle]
+                        dm[dy0:dy1, dx0:dx1][circle] = old_vals + (dv - old_vals) * falloff
+                    else:
+                        dm[dy0:dy1, dx0:dx1][circle] = dv
                 return
 
             # 修改大陆时，如果已有省份数据则自动清除（只检查一次）

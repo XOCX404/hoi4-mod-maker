@@ -261,7 +261,14 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         tp.validate_requested.connect(self._on_validate)
         tp.quick_init_requested.connect(self._on_quick_init)
         tp.smooth_coast_requested.connect(self._on_smooth_coast)
-        tp.density_paint_toggled.connect(self._on_density_paint_toggle)
+        # 密度模式信号
+        tp.density_value_changed.connect(
+            lambda v: setattr(self._canvas, '_density_paint_value', v))
+        tp.density_brush_size_changed.connect(
+            lambda s: setattr(self._canvas, '_density_brush_size', s))
+        tp.density_soft_edge_changed.connect(
+            lambda s: setattr(self._canvas, '_density_soft_edge', s / 100.0))
+        tp.density_clear_requested.connect(self._on_density_clear)
         tp.auto_terrain_requested.connect(self._on_auto_terrain)
         tp.terrain_brush_size_changed.connect(
             lambda s: setattr(self._controllers["terrain"], "brush_size", s)
