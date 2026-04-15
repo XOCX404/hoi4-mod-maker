@@ -150,6 +150,11 @@ class WelcomePage(QWidget):
         btn_import.clicked.connect(lambda: self.import_mod_requested.emit())
         center.addWidget(btn_import, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        btn_guide = QPushButton(tr("action_guide"))
+        btn_guide.setStyleSheet(btn_style)
+        btn_guide.clicked.connect(self._on_guide)
+        center.addWidget(btn_guide, alignment=Qt.AlignmentFlag.AlignCenter)
+
         center.addSpacing(12)
 
         # 最近项目
@@ -201,6 +206,11 @@ class WelcomePage(QWidget):
         if dlg.exec_() == QDialog.DialogCode.Accepted:
             w, h = dlg.chosen_size
             self.new_project_requested.emit(w, h)
+
+    def _on_guide(self) -> None:
+        from views.guide_dialog import GuideDialog
+        dlg = GuideDialog(self)
+        dlg.exec_()
 
     def _on_recent_clicked(self, item: QListWidgetItem) -> None:
         path = item.data(Qt.ItemDataRole.UserRole)
