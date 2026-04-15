@@ -194,6 +194,9 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
 
         # 帮助
         help_menu = menubar.addMenu(tr("menu_help"))
+        self._add_action(help_menu, tr("action_guide"), self._show_guide_force)
+        self._add_action(help_menu, tr("action_reset_hints"), self._reset_mode_hints)
+        help_menu.addSeparator()
         self._add_action(help_menu, tr("action_about"), self._on_about)
 
     def _add_action(self, menu, text, slot, shortcut=None):
@@ -678,6 +681,26 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
     def _on_welcome_new(self, width: int, height: int) -> None:
         self._on_new_project()
         self._show_editor()
+        self._maybe_show_guide()
+
+    def _maybe_show_guide(self) -> None:
+        """新建项目后弹出新手引导（除非用户勾了不再显示）。"""
+        from views.guide_dialog import should_show_guide, GuideDialog
+        if should_show_guide():
+            dlg = GuideDialog(self)
+            dlg.exec_()
+
+    def _show_guide_force(self) -> None:
+        """从帮助菜单强制打开引导。"""
+        from views.guide_dialog import GuideDialog
+        dlg = GuideDialog(self)
+        dlg.exec_()
+
+    def _reset_mode_hints(self) -> None:
+        """重置所有模式操作提示。"""
+        from ui.mode_hint_bar import ModeHintBar
+        ModeHintBar.reset_all_hints()
+        QMessageBox.information(self, tr("action_reset_hints"), tr("guide_reset_done"))
 
     def _on_welcome_open_recent(self, path: str) -> None:
         import os

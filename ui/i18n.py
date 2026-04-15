@@ -512,6 +512,148 @@ _translations: dict[str, dict[str, str]] = {
 
     # === 单位词 ===
     "unit_provinces": {"zh": "省", "en": "prov."},
+
+    # === 新手引导对话框 ===
+    "guide_title": {"zh": "新手引导", "en": "Getting Started"},
+    "guide_step_n": {"zh": "第 {} 步 / 共 {} 步", "en": "Step {} of {}"},
+    "guide_prev": {"zh": "上一步", "en": "Previous"},
+    "guide_next": {"zh": "下一步", "en": "Next"},
+    "guide_start": {"zh": "开始制作", "en": "Start Creating"},
+    "guide_dont_show": {"zh": "不再显示", "en": "Don't show again"},
+
+    "guide_step1_title": {"zh": "画大陆轮廓", "en": "Draw Continents"},
+    "guide_step1_desc": {
+        "zh": "选择「陆地与海洋」模式，用画笔画出大陆的形状。\n\n"
+              "• 左键画陆地，切换到「海洋」或「湖泊」画海域\n"
+              "• 填充工具可以快速涂满大面积区域\n"
+              "• 变换工具可以框选一块区域进行移动/缩放\n"
+              "• 也可以导入一张参考图片，对着描绘",
+        "en": "Select 'Land & Sea' mode and draw your continent shapes.\n\n"
+              "• Left-click to paint land; switch to Sea/Lake to paint water\n"
+              "• Use Fill tool to quickly cover large areas\n"
+              "• Use Transform tool to select, move, and scale regions\n"
+              "• You can also import a reference image to trace over",
+    },
+    "guide_step2_title": {"zh": "生成省份", "en": "Generate Provinces"},
+    "guide_step2_desc": {
+        "zh": "画完大陆后，点击「生成省份」按钮自动切分区域。\n\n"
+              "• 调整省份数量滑块控制密度（推荐 3000-12000）\n"
+              "• 海洋和湖泊密度可以单独调节\n"
+              "• 生成后可用合并/切割/套索工具微调边界\n"
+              "• 点击「验证省份」检查是否有问题",
+        "en": "After drawing continents, click 'Generate Provinces' to auto-split regions.\n\n"
+              "• Adjust the province count slider (recommended: 3000-12000)\n"
+              "• Sea and lake density can be set independently\n"
+              "• Use Merge / Split / Lasso tools to fine-tune borders\n"
+              "• Click 'Validate' to check for issues",
+    },
+    "guide_step3_title": {"zh": "地形与高度", "en": "Terrain & Height"},
+    "guide_step3_desc": {
+        "zh": "切换到「高度」模式，点击「自动生成」创建高度图。\n"
+              "然后切到「地形」模式，点击「自动生成」按高度分配地形。\n\n"
+              "• 高度图决定山脉和平原的分布\n"
+              "• 地形影响游戏中的移动速度和战斗加成\n"
+              "• 也可以用画刷手动调整局部区域",
+        "en": "Switch to 'Height' mode and click 'Auto Generate' for a heightmap.\n"
+              "Then switch to 'Terrain' and click 'Auto Generate' to assign terrain by height.\n\n"
+              "• Heightmap determines mountain and plain distribution\n"
+              "• Terrain affects movement speed and combat bonuses in-game\n"
+              "• You can also manually paint specific areas with brushes",
+    },
+    "guide_step4_title": {"zh": "建州与国家", "en": "States & Countries"},
+    "guide_step4_desc": {
+        "zh": "切换到「州」模式，点击「自动生成州」一键创建。\n"
+              "然后切到「国家」模式，创建国家并分配领土。\n\n"
+              "• 或者直接点击「一键初始化」自动完成这些步骤\n"
+              "• 双击省份可以设置胜利点\n"
+              "• 每个州需要归属一个国家才能导出",
+        "en": "Switch to 'State' mode and click 'Auto Generate States'.\n"
+              "Then switch to 'Country' to create nations and assign territory.\n\n"
+              "• Or just click 'Quick Init' to do all of this automatically\n"
+              "• Double-click a province to set a victory point\n"
+              "• Every state must belong to a country for export",
+    },
+    "guide_step5_title": {"zh": "后勤配置（可跳过）", "en": "Logistics (Optional)"},
+    "guide_step5_desc": {
+        "zh": "切换到「后勤系统」模式，可以设置：\n\n"
+              "• 邻接关系（跨海连接等特殊通道）\n"
+              "• 铁路网络\n"
+              "• 补给节点\n\n"
+              "这一步可以跳过，导出时会自动补全基础配置。",
+        "en": "Switch to 'Logistics' mode to set up:\n\n"
+              "• Adjacencies (cross-sea connections, special passages)\n"
+              "• Railway networks\n"
+              "• Supply nodes\n\n"
+              "This step is optional — basic config is auto-generated on export.",
+    },
+    "guide_step6_title": {"zh": "一键导出", "en": "Export & Play"},
+    "guide_step6_desc": {
+        "zh": "点击底部的「导出 MOD」按钮，即可生成完整的 HOI4 MOD。\n\n"
+              "• 导出前会自动检查并修复常见问题\n"
+              "• 生成 2000+ 游戏文件（provinces/states/countries 等）\n"
+              "• 导出完成后直接启动 HOI4 即可进入游戏\n\n"
+              "祝你的幻想世界玩得愉快！",
+        "en": "Click the 'Export MOD' button at the bottom to generate a complete HOI4 MOD.\n\n"
+              "• Pre-export checks will auto-fix common issues\n"
+              "• Generates 2000+ game files (provinces/states/countries, etc.)\n"
+              "• Launch HOI4 after export and jump right into your world\n\n"
+              "Enjoy building your fantasy world!",
+    },
+
+    # === 帮助菜单 ===
+    "action_guide": {"zh": "新手引导", "en": "Getting Started Guide"},
+    "action_reset_hints": {"zh": "重置操作提示", "en": "Reset Mode Hints"},
+    "guide_reset_done": {"zh": "已重置所有模式提示", "en": "All mode hints have been reset"},
+
+    # === 模式操作提示条 ===
+    "hint_mode_land": {
+        "zh": "用画笔画出大陆形状，填充可快速涂满区域。完成后切换到「省份」模式。",
+        "en": "Draw continent shapes with brush. Use Fill for large areas. Switch to 'Province' when done.",
+    },
+    "hint_mode_province": {
+        "zh": "点击「生成省份」自动切分，用合并/切割/套索微调边界。",
+        "en": "Click 'Generate Provinces' to auto-split. Use Merge/Split/Lasso to adjust borders.",
+    },
+    "hint_mode_height": {
+        "zh": "点击「自动生成」创建高度图，或用滑块手动调整。完成后切到「地形」。",
+        "en": "Click 'Auto Generate' for heightmap, or adjust manually. Then switch to 'Terrain'.",
+    },
+    "hint_mode_terrain": {
+        "zh": "点击「自动生成」按高度分配地形，或用画刷手动绘制。",
+        "en": "Click 'Auto Generate' to assign terrain by height, or paint manually with brushes.",
+    },
+    "hint_mode_river": {
+        "zh": "沿省份边界画河流，从高处画向低处（山地→海洋）。",
+        "en": "Draw rivers along province borders, from high to low elevation (mountains → sea).",
+    },
+    "hint_mode_state": {
+        "zh": "点击「自动生成州」一键创建，或框选省份手动建州。双击省份设胜利点。",
+        "en": "Click 'Auto Generate States' or select provinces manually. Double-click to set victory points.",
+    },
+    "hint_mode_country": {
+        "zh": "创建国家（TAG+名称+颜色），然后点击州分配领土。",
+        "en": "Create a country (TAG + name + color), then click states to assign territory.",
+    },
+    "hint_mode_continent": {
+        "zh": "添加大陆名称，然后点击州分配到对应大陆。",
+        "en": "Add continent names, then click states to assign them.",
+    },
+    "hint_mode_strategic_region": {
+        "zh": "点击「自动生成」或从州创建战略区域。",
+        "en": "Click 'Auto Generate' or create strategic regions from states.",
+    },
+    "hint_mode_logistics": {
+        "zh": "设置邻接/铁路/补给节点。可跳过，导出时自动补全。",
+        "en": "Set adjacencies, railways, and supply nodes. Optional — auto-generated on export.",
+    },
+    "hint_mode_colormap": {
+        "zh": "调整总览贴图的陆地/海洋/湖泊配色。",
+        "en": "Adjust land/sea/lake colors for the overview colormap.",
+    },
+    "hint_mode_default_map": {
+        "zh": "配置河流数量上限和树木调色板。",
+        "en": "Configure max river count and tree color palette.",
+    },
 }
 
 

@@ -252,6 +252,11 @@ class ToolPanel(QWidget):
         self._mode_tabs.mode_changed.connect(self._on_mode_changed)
         root.addWidget(self._mode_tabs)
 
+        # 模式操作提示条
+        from ui.mode_hint_bar import ModeHintBar
+        self._hint_bar = ModeHintBar()
+        root.addWidget(self._hint_bar)
+
         # 页面内容滚动区域 (只包裹 stack，mode_tabs 固定在上方)
         self._page_scroll = QScrollArea()
         self._page_scroll.setWidgetResizable(True)
@@ -580,6 +585,8 @@ class ToolPanel(QWidget):
         # 切换模式时自动设工具为 brush（省份/state/country 模式除外）
         if mode not in ("province", "state", "country"):
             self.tool_changed.emit("brush")
+        # 触发模式提示条
+        self._hint_bar.on_mode_changed(mode)
         self.mode_changed.emit(mode)
 
     # ── 公共方法 (转发到对应 page) ────────────────────────
