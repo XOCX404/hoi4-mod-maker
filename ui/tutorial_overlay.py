@@ -89,8 +89,8 @@ class TutorialOverlay(QWidget):
 
         panel_lay.addLayout(btn_row)
 
-        self._panel.setMinimumHeight(140)
-        self._panel.setMaximumHeight(220)
+        self._panel.setMinimumHeight(160)
+        self._panel.setMaximumHeight(300)
         self.hide()
 
     def show_step(self, step_text: str, message: str,
@@ -154,6 +154,13 @@ class TutorialOverlay(QWidget):
 
         # 底部面板区域用实色背景
         painter.fillRect(self._panel.geometry(), QColor("#2a2a3e"))
+
+    def eventFilter(self, obj, event) -> bool:
+        """跟随父控件 resize。"""
+        from PyQt5.QtCore import QEvent
+        if event.type() == QEvent.Type.Resize:
+            self.setGeometry(obj.rect())
+        return False
 
     def mousePressEvent(self, event) -> None:
         """遮罩区域拦截点击，目标区域已通过 setMask 挖洞穿透。"""

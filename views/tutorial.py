@@ -29,10 +29,14 @@ class TutorialController:
         mw._on_new_project()
         mw._show_editor()
 
-        # 调整 overlay 尺寸覆盖主窗口
-        self._overlay.setGeometry(mw.centralWidget().rect())
+        # overlay 挂到编辑器 widget 上，跟随大小
+        self._overlay.setParent(mw._editor)
+        self._overlay.setGeometry(mw._editor.rect())
         self._overlay.show()
         self._overlay.raise_()
+
+        # 监听主窗口 resize 同步 overlay
+        mw._editor.installEventFilter(self._overlay)
 
         self._step = 0
         self._show_current_step()
@@ -40,6 +44,7 @@ class TutorialController:
     def stop(self) -> None:
         """结束教程。"""
         self._unsubscribe_all()
+        self._mw._editor.removeEventFilter(self._overlay)
         self._overlay.hide()
         self._step = 0
 
