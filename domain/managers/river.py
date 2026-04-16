@@ -76,16 +76,16 @@ RIVER_MARKER_TYPES = [
 ]
 
 # 宽度画笔 (拖拽绘制)
+# 注意：跳过 index 5 和 8！vanilla rivers.bmp 从不用这两个索引，
+# 手动画时选 5/8 会导致 HOI4 加载崩溃（EXCEPTION_INT_DIVIDE_BY_ZERO）
 RIVER_WIDTH_TYPES = [
-    (RIVER_WIDTH_1, "细流"),
-    (RIVER_WIDTH_2, "小河"),
-    (RIVER_WIDTH_3, "中河"),
-    (RIVER_WIDTH_4, "大河"),
-    (RIVER_WIDTH_5, "宽河"),
-    (RIVER_WIDTH_6, "巨河"),
-    (RIVER_WIDTH_7, "大江"),
-    (RIVER_WIDTH_8, "巨江"),
-    (RIVER_WIDTH_9, "最宽"),
+    (RIVER_WIDTH_1, "细流"),    # index 3
+    (RIVER_WIDTH_2, "小河"),    # index 4
+    (RIVER_WIDTH_4, "中河"),    # index 6（跳过 5）
+    (RIVER_WIDTH_5, "大河"),    # index 7
+    (RIVER_WIDTH_7, "宽河"),    # index 9（跳过 8）
+    (RIVER_WIDTH_8, "巨河"),    # index 10
+    (RIVER_WIDTH_9, "最宽"),    # index 11
 ]
 
 # 保持向后兼容

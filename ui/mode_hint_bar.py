@@ -16,11 +16,11 @@ _SETTINGS_GROUP = "ModeHints"
 
 
 class ModeHintBar(QWidget):
-    """可关闭的单行模式提示条。"""
+    """可关闭的模式提示条，自适应高度。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(36)
+        self.setMinimumHeight(32)
         self.setStyleSheet(f"""
             ModeHintBar {{
                 background: {_HINT_BG};
@@ -31,17 +31,17 @@ class ModeHintBar(QWidget):
         self._current_mode = ""
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(12, 0, 8, 0)
+        lay.setContentsMargins(12, 6, 8, 6)
         lay.setSpacing(8)
 
         self._icon = QLabel("💡")
         self._icon.setFixedWidth(20)
         self._icon.setStyleSheet("font-size: 14px; background: transparent;")
-        lay.addWidget(self._icon)
+        lay.addWidget(self._icon, 0, Qt.AlignTop)
 
         self._text = QLabel()
-        self._text.setStyleSheet(f"color: {_TEXT}; font-size: 12px; background: transparent;")
-        self._text.setWordWrap(False)
+        self._text.setStyleSheet(f"color: {_TEXT}; font-size: 13px; background: transparent;")
+        self._text.setWordWrap(True)
         lay.addWidget(self._text, 1)
 
         close_btn = QPushButton("✕")
@@ -58,7 +58,7 @@ class ModeHintBar(QWidget):
             }}
         """)
         close_btn.clicked.connect(self._dismiss)
-        lay.addWidget(close_btn)
+        lay.addWidget(close_btn, 0, Qt.AlignTop)
 
         self.hide()
 

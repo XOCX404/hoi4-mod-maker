@@ -109,9 +109,13 @@ def smart_auto_terrain(
     perturbed = height_map.astype(np.float32) + boundary_noise * config.noise_amplitude
 
     # 3. 基础分层
-    land = tile_map == TILE_LAND
+    # 关键：land = tile_map==LAND 且 heightmap≥SEA_LEVEL（双重判定，避免延伸到海）
+    # HOI4 游戏内看 heightmap 判海陆，如果 tile_map 和 heightmap 不一致
+    # （例如 tile_map=LAND 但 heightmap<95），会导致地形渲染跑到海里
+    land = (tile_map == TILE_LAND) & (height_map >= SEA_LEVEL)
     lake = tile_map == TILE_LAKE
-    sea = tile_map == TILE_SEA
+    # sea = 显式海洋 或 "陆地但高度<海平面"的不一致像素
+    sea = (tile_map == TILE_SEA) | ((tile_map == TILE_LAND) & (height_map < SEA_LEVEL))
 
     # 纬度参数
     y_ratio = np.linspace(0, 1, h, dtype=np.float32)[:, None]  # (h, 1)
@@ -223,9 +227,9 @@ def _apply_variants(
 @dataclass(frozen=True)
 class HeightGenConfig:
     """高度图生成参数。"""
-    # 基础高度
+    # 基础高度（参考原版: 海岸~97, 内陆平原~120, 山脉200+）
     coast_height: int = 97      # 海岸线基础高度 (刚过海平面95)
-    inland_max: int = 130       # 内陆最高基础值 (距离场上限)
+    inland_max: int = 180       # 内陆最高基础值 (距离场上限，原版山区到200+)
     # 距离场
     distance_power: float = 0.35 # 距海岸距离的幂次
     distance_scale: float = 250.0 # 距离归一化尺度 (像素)
@@ -244,9 +248,15 @@ def smart_auto_height(
     tile_map: np.ndarray,
     config: HeightGenConfig | None = None,
 ) -> np.ndarray:
-    """智能高度图生成: 海岸距离场 + Perlin 噪声山脉 + 平滑。
+    """智能高度图生成: 双向距离场（海陆都渐变）+ Perlin 噪声山脉 + 平滑。
 
-    生成自然的高度起伏: 海岸低、内陆高、有山脉和谷地。
+    旧版本 bug：
+        1. 海洋统一设成 OCEAN_HEIGHT=40 → 海岸像悬崖
+        2. 陆地用 power(dist, 0.35) 海岸瞬间升高 → 陆地侧也是悬崖
+    新版本：
+        - 海洋也用距离场：浅海 94 → 深海 70（渐深）
+        - 陆地用线性距离：海岸 97 → 内陆 180（缓升）
+        - 噪声只加在远离海岸的内陆，不破坏沙滩区
     """
     from scipy.ndimage import gaussian_filter, distance_transform_edt
     from domain.noise import perlin_2d
@@ -259,41 +269,46 @@ def smart_auto_height(
     lake = tile_map == TILE_LAKE
     sea = (tile_map == TILE_SEA) | (tile_map == 0)
 
-    # 1. 计算到海岸的距离场 (陆地像素到最近海洋的距离)
-    coast_dist = distance_transform_edt(land).astype(np.float32)
-    # 归一化: 0(海岸) → 1(内陆深处)
+    # 1. 双向距离场
+    dist_to_sea = distance_transform_edt(~sea).astype(np.float32)   # 陆地像素到海的距离
+    dist_to_land = distance_transform_edt(~land).astype(np.float32)  # 海洋像素到陆的距离
+
+    hm = np.full((h, w), float(SEA_LEVEL), dtype=np.float32)
+
+    # 2. 陆地基础高度：线性（不用幂次，避免海岸悬崖）
+    #    海岸 97 → 内陆 180（约 250 像素深处达到峰值）
     max_dist = max(config.distance_scale, 1.0)
-    dist_norm = np.clip(coast_dist / max_dist, 0, 1)
-    # 幂次映射: 让海岸附近快速升高
-    dist_factor = np.power(dist_norm, config.distance_power)
+    land_height_factor = np.clip(dist_to_sea / max_dist, 0, 1)
+    hm[land] = config.coast_height + land_height_factor[land] * (config.inland_max - config.coast_height)
 
-    # 2. 基础高度: 海岸 → 内陆渐变 (先平滑，保留大轮廓)
-    base = config.coast_height + dist_factor * (config.inland_max - config.coast_height)
-    base = gaussian_filter(base, sigma=config.smooth_sigma)
+    # 3. 海洋基础高度：浅海 94 → 深海 70（系数 0.8/像素，封顶 -25）
+    hm[sea] = SEA_LEVEL - np.clip(dist_to_land[sea] * 0.8, 1, 25)
 
-    # 3. Perlin 噪声叠加 (大尺度=山脉, 小尺度=细节)
-    #    加在平滑后面，这样噪声不会被削掉
+    # 4. Perlin 噪声叠加 — 只加在远离海岸的内陆（保护沙滩区）
     ds = 4 if h > 1024 else 1
     mountain_noise = perlin_2d((h, w), scale=config.noise_scale,
                                octaves=4, seed=config.seed, downsample=ds)
     detail_noise = perlin_2d((h, w), scale=config.detail_scale,
                              octaves=3, seed=config.seed + 500, downsample=ds)
 
-    hm = base + mountain_noise * config.noise_amplitude + detail_noise * config.detail_amplitude
+    # 噪声权重：海岸 0% → 内陆 5 像素后 100%（保护海岸渐变）
+    noise_weight = np.clip((dist_to_sea - 5) / 10.0, 0, 1).astype(np.float32)
+    hm[land] += (mountain_noise[land] * config.noise_amplitude
+                 + detail_noise[land] * config.detail_amplitude) * noise_weight[land]
 
-    # 4. 轻微平滑噪声边缘 (sigma=2 只磨毛刺，不削山峰)
+    # 5. 轻微平滑（不削山峰）
     hm = gaussian_filter(hm, sigma=2.0)
 
-    # 5. 强制约束
-    hm[sea] = OCEAN_HEIGHT
+    # 6. 强制约束（守底线，保证 HOI4 海陆判定正确）
     hm[lake] = SEA_LEVEL - 5
-    hm[land] = np.maximum(hm[land], SEA_LEVEL + 1)  # 陆地不低于海平面
+    hm[land] = np.maximum(hm[land], SEA_LEVEL + 1)  # 陆地至少 96
+    hm[sea] = np.minimum(hm[sea], SEA_LEVEL - 1)    # 海至少 94
 
     # HOI4 要求顶底行高度接近海平面
     hm[0, :] = np.minimum(hm[0, :], SEA_LEVEL)
     hm[-1, :] = np.minimum(hm[-1, :], SEA_LEVEL)
 
-    return np.clip(hm, 0, 255).astype(np.uint8)
+    return np.clip(hm, 30, 255).astype(np.uint8)
 
 
 def apply_mountain_ridge(
@@ -396,3 +411,77 @@ def smooth_height(height_map: np.ndarray, sigma: float = 4.0) -> np.ndarray:
     hm = height_map.astype(np.float32)
     hm = gaussian_filter(hm, sigma=sigma)
     return np.clip(hm, 0, 255).astype(np.uint8)
+
+
+def compute_provincial_terrain_from_bmp(
+    terrain_map: np.ndarray,
+    province_map: np.ndarray,
+    tile_map: np.ndarray,
+) -> dict[int, str]:
+    """从 terrain.bmp 按 per-province 多数地形推断 provincial_terrain dict。
+
+    用于：自动生成地形后，让 dict 属性层跟着更新（单向同步：视觉 → 属性）。
+
+    算法：
+    1. 找出"真正的陆地 province"：该 province 的 LAND 像素数 > SEA+LAKE 像素数
+    2. 对这些陆地 province，统计 terrain_map 多数地形 → 写入 dict
+    3. 海洋/湖泊 province 绝对不写入 dict（避免误把海洋改成陆地属性）
+    """
+    from data.terrain_types import PALETTE_TO_TYPE
+
+    flat_pid = province_map.ravel()
+    flat_tile = tile_map.ravel()
+    flat_ter = terrain_map.ravel()
+
+    max_pid = int(province_map.max())
+    if max_pid <= 0:
+        return {}
+
+    # Step 1: 统计每个 province 的 LAND / SEA+LAKE 像素数
+    land_pixel_mask = flat_tile == TILE_LAND
+    non_land_pixel_mask = (flat_tile == TILE_SEA) | (flat_tile == TILE_LAKE)
+
+    land_counts = np.bincount(
+        flat_pid[land_pixel_mask], minlength=max_pid + 1
+    )
+    non_land_counts = np.bincount(
+        flat_pid[non_land_pixel_mask], minlength=max_pid + 1
+    )
+
+    # 真正的陆地 province：LAND 像素严格多于海/湖像素
+    is_land_province = land_counts > non_land_counts
+    is_land_province[0] = False  # province 0 永远不算
+    land_pids = set(np.where(is_land_province)[0].tolist())
+
+    if not land_pids:
+        return {}
+
+    # Step 2: 只对 land province 统计 terrain_map 多数地形
+    # 过滤：只看 land province 的 LAND 像素（不看边界上的 SEA 像素）
+    valid_mask = land_pixel_mask & np.isin(flat_pid, list(land_pids))
+    valid_pid = flat_pid[valid_mask].astype(np.int64)
+    valid_ter = flat_ter[valid_mask].astype(np.int64)
+
+    if len(valid_pid) == 0:
+        return {}
+
+    keys = valid_pid * 256 + valid_ter
+    unique, counts = np.unique(keys, return_counts=True)
+
+    best: dict[int, tuple[int, int]] = {}
+    for k, c in zip(unique, counts):
+        pid = int(k // 256)
+        terr = int(k % 256)
+        cnt = int(c)
+        if pid not in best or cnt > best[pid][0]:
+            best[pid] = (cnt, terr)
+
+    # Step 3: 转换成 provincial type name
+    result: dict[int, str] = {}
+    for pid, (_, terr_idx) in best.items():
+        ptype = PALETTE_TO_TYPE.get(terr_idx)
+        # 海洋/湖泊地形不记入（双重保护，即使像素里混了 ocean 索引也跳过）
+        if ptype and ptype not in ("ocean", "lakes"):
+            result[pid] = ptype
+
+    return result

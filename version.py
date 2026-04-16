@@ -1,9 +1,42 @@
 """版本信息 — 每次发版更新这里"""
 
-VERSION = "1.0.1"
-VERSION_DATE = "2026-04-14"
+VERSION = "1.0.2-beta"
+VERSION_DATE = "2026-04-16"
 
 CHANGELOG = {
+    "1.0.2-beta": {
+        "date": "2026-04-16",
+        "changes": [
+            "重大崩溃修复：rivers.bmp 非法索引5/8+对角线像素（EXCEPTION_INT_DIVIDE_BY_ZERO）",
+            "重大崩溃修复：coastal province 缺 naval_base_spawn（tile_map 不一致时补救）",
+            "重大崩溃修复：heightmap 算法改为距离场（海岸渐变，不再悬崖切下去）",
+            "重大崩溃修复：smart_auto_terrain 结合 heightmap 防延伸到海",
+            "重大崩溃修复：compute_provincial_terrain_from_bmp 只处理真陆地 province",
+            "新增：独立「地形（属性）」显示模式（gameplay 地形，和视觉分离）",
+            "新增：自动生成地形同步 provincial_terrain dict（视觉→属性单向同步）",
+            "新增：未分配省份红色高亮 + 状态栏提示",
+            "新增：批量建州选中省份黄色高亮",
+            "新增：后勤铁路/补给点可视化 overlay",
+            "新增：山脉画线实时红线反馈",
+            "UI：字体/配色可读性优化（_DIM 对比度 3.5→4.9，字号 +1px）",
+            "UI：最近项目列表 360→640，加 tooltip",
+            "UI：高度/地形/河流 tab 顶部都加一键生成大按钮",
+            "UI：模式导航加风险等级标签（🎨视觉/🟢基础/🟠影响游戏/🔴崩溃高发）",
+            "UI：河流 tab 改版（3步引导）+ 切过去自动 1px",
+            "UI：属性地形 tab 默认查看模式，开「分配模式」才改",
+            "修复：RIVER_WIDTH_TYPES 去掉非法索引 5/8（用户手动选会崩）",
+        ],
+    },
+    "1.0.1-beta": {
+        "date": "2026-04-15",
+        "changes": [
+            "UI 重构：13模式合并为7个图标导航 + 子标签页",
+            "画笔改为圆形笔刷（密度/陆地/地形/河流统一）",
+            "海岸线平滑支持框选局部区域",
+            "面板 Section 标题加粗加大",
+            "模式提示条自适应高度 + 允许换行",
+        ],
+    },
     "1.0.1": {
         "date": "2026-04-14",
         "changes": [

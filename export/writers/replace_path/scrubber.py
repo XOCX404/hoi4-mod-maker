@@ -17,19 +17,26 @@ from data.constants import REPLACE_PATHS, DEFAULT_HOI4_PATH
 
 
 def _build_division_names_with_phantoms() -> str:
-    """生成 names_divisions 文件内容: 只保留 generic fallback。
-    2026-04-14: 去掉所有国家特定的幽灵 name groups (ENG_MAR_01 等),
-    这些条目引用不存在的国家反而导致加载崩溃。vanilla 引用找不到时只警告不崩。
-    """
-    out = (
-        "GENERIC_INF_DIVISION = {\n"
+    """生成 names_divisions 文件内容: 符合原版格式的最小 generic fallback。"""
+    return (
+        'GENERIC_INF_01 = {\n'
         '\tname = "Infantry Division"\n'
-        "\tcan_use = { always = yes }\n"
+        '\n'
+        '\tfor_countries = { AAA }\n'
+        '\n'
+        '\tcan_use = { always = yes }\n'
+        '\n'
         '\tdivision_types = { "infantry" }\n'
+        '\n'
         '\tfallback_name = "%d Infantry Division"\n'
-        "}\n\n"
+        '\n'
+        '\tordered = {\n'
+        '\t\t1 = { "1st Infantry Division" }\n'
+        '\t\t2 = { "2nd Infantry Division" }\n'
+        '\t\t3 = { "3rd Infantry Division" }\n'
+        '\t}\n'
+        '}\n'
     )
-    return out
 
 
 def write_replace_path_dirs(output_dir: str) -> None:
@@ -43,11 +50,12 @@ def write_replace_path_dirs(output_dir: str) -> None:
     for p in REPLACE_PATHS:
         os.makedirs(os.path.join(output_dir, p), exist_ok=True)
 
-    # history/general 没有自动生成的内容, 放空占位
-    hg = os.path.join(output_dir, "history", "general")
-    if os.path.isdir(hg) and not os.listdir(hg):
-        with open(os.path.join(hg, "00_placeholder.txt"), "w") as f:
-            f.write("# Empty - no generals defined\n")
+    # 空目录放占位文件
+    for empty_dir in ("history/general", "common/strategic_locations"):
+        d = os.path.join(output_dir, empty_dir.replace("/", os.sep))
+        if os.path.isdir(d) and not os.listdir(d):
+            with open(os.path.join(d, "00_placeholder.txt"), "w") as f:
+                f.write("# Empty\n")
 
     ai_full_copy_dirs = (
         "common/ai_strategy",

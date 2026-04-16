@@ -93,13 +93,27 @@ class WelcomePage(QWidget):
         self.setStyleSheet(f"background: {_BG};")
         self._init_ui()
 
-    def _init_ui(self) -> None:
-        outer = QHBoxLayout(self)
-        outer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    _CARD_WIDTH = 280
+    _CARD_SPACING = 40
 
-        center = QVBoxLayout()
-        center.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        center.setSpacing(16)
+    def _init_ui(self) -> None:
+        # 布局：左占位 | stretch | 主菜单(居中) | 间距 | 社区卡片 | stretch
+        # 左占位宽度 = 卡片宽 + 间距，使主菜单保持屏幕正中
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # 左侧平衡占位（和右侧卡片+间距等宽）
+        left_spacer = QWidget()
+        left_spacer.setFixedWidth(self._CARD_WIDTH + self._CARD_SPACING)
+        left_spacer.setStyleSheet("background: transparent;")
+        outer.addWidget(left_spacer)
+        outer.addStretch(1)
+
+        # ══════ 主菜单（居中主体） ══════
+        left = QVBoxLayout()
+        left.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        left.setSpacing(16)
 
         # 标题
         title = QLabel(tr("welcome_title"))
@@ -107,16 +121,16 @@ class WelcomePage(QWidget):
         title.setFont(title_font)
         title.setStyleSheet(f"color: {_TEXT}; background: transparent;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        center.addWidget(title)
+        left.addWidget(title)
 
         # 版本
         from version import VERSION
         version = QLabel(f"v{VERSION}")
         version.setStyleSheet(f"color: {_DIM}; font-size: 14px; background: transparent;")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        center.addWidget(version)
+        left.addWidget(version)
 
-        center.addSpacing(24)
+        left.addSpacing(24)
 
         # 按钮样式
         btn_style = f"""
@@ -138,40 +152,41 @@ class WelcomePage(QWidget):
         btn_new = QPushButton(tr("action_new"))
         btn_new.setStyleSheet(btn_style)
         btn_new.clicked.connect(self._on_new)
-        center.addWidget(btn_new, alignment=Qt.AlignmentFlag.AlignCenter)
+        left.addWidget(btn_new, alignment=Qt.AlignmentFlag.AlignCenter)
 
         btn_open = QPushButton(tr("action_open"))
         btn_open.setStyleSheet(btn_style)
         btn_open.clicked.connect(lambda: self.open_project_requested.emit())
-        center.addWidget(btn_open, alignment=Qt.AlignmentFlag.AlignCenter)
+        left.addWidget(btn_open, alignment=Qt.AlignmentFlag.AlignCenter)
 
         btn_import = QPushButton(tr("welcome_import_mod"))
         btn_import.setStyleSheet(btn_style)
         btn_import.clicked.connect(lambda: self.import_mod_requested.emit())
-        center.addWidget(btn_import, alignment=Qt.AlignmentFlag.AlignCenter)
+        left.addWidget(btn_import, alignment=Qt.AlignmentFlag.AlignCenter)
 
         btn_guide = QPushButton(tr("action_guide"))
         btn_guide.setStyleSheet(btn_style)
         btn_guide.clicked.connect(self._on_guide)
-        center.addWidget(btn_guide, alignment=Qt.AlignmentFlag.AlignCenter)
+        left.addWidget(btn_guide, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        center.addSpacing(12)
+        left.addSpacing(12)
 
         # 最近项目
         recent_label = QLabel(tr("welcome_recent"))
         recent_label.setStyleSheet(f"color: {_DIM}; font-size: 12px; background: transparent;")
         recent_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        center.addWidget(recent_label)
+        left.addWidget(recent_label)
 
         self._recent_list = QListWidget()
-        self._recent_list.setFixedSize(360, 180)
+        self._recent_list.setFixedSize(640, 220)  # 加宽到 640（原 360）显示长路径
+        self._recent_list.setToolTip("双击打开项目；鼠标悬停可看完整路径")
         self._recent_list.setStyleSheet(f"""
             QListWidget {{
                 background: {_INPUT_BG};
                 border: 1px solid {_BORDER};
                 border-radius: 6px;
                 color: {_TEXT};
-                font-size: 12px;
+                font-size: 13px;
             }}
             QListWidget::item {{
                 padding: 6px 8px;
@@ -185,16 +200,71 @@ class WelcomePage(QWidget):
             }}
         """)
         self._recent_list.itemDoubleClicked.connect(self._on_recent_clicked)
-        center.addWidget(self._recent_list, alignment=Qt.AlignmentFlag.AlignCenter)
+        left.addWidget(self._recent_list, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._populate_recent()
-        outer.addLayout(center)
+        outer.addLayout(left)
+
+        outer.addSpacing(self._CARD_SPACING)
+
+        # ══════ 社区卡片（紧贴主菜单右边，垂直居中） ══════
+        right = QVBoxLayout()
+        right.setSpacing(0)
+        right.addStretch(1)
+
+        info_card = QWidget()
+        info_card.setFixedWidth(self._CARD_WIDTH)
+        info_card.setStyleSheet(f"""
+            QWidget {{
+                background: {_INPUT_BG};
+                border: 1px solid {_BORDER};
+                border-radius: 8px;
+            }}
+        """)
+        card_lay = QVBoxLayout(info_card)
+        card_lay.setContentsMargins(24, 24, 24, 24)
+        card_lay.setSpacing(16)
+
+        # 社区支持
+        community_title = QLabel(tr("welcome_community_title"))
+        community_title.setStyleSheet(f"color: {_ACCENT}; font-size: 15px; font-weight: bold; background: transparent; border: none;")
+        card_lay.addWidget(community_title)
+
+        community = QLabel(tr("welcome_community"))
+        community.setWordWrap(True)
+        community.setTextFormat(Qt.TextFormat.RichText)
+        community.setOpenExternalLinks(True)
+        community.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextBrowserInteraction | Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        community.setStyleSheet(f"color: {_TEXT}; font-size: 13px; line-height: 1.8; background: transparent; border: none;")
+        card_lay.addWidget(community)
+
+        # 分隔线
+        sep = QLabel()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background: {_BORDER}; border: none;")
+        card_lay.addWidget(sep)
+
+        # GitHub + 反馈
+        links = QLabel(tr("welcome_links"))
+        links.setWordWrap(True)
+        links.setTextFormat(Qt.TextFormat.RichText)
+        links.setOpenExternalLinks(True)
+        links.setStyleSheet(f"color: {_TEXT}; font-size: 13px; background: transparent; border: none;")
+        card_lay.addWidget(links)
+
+        right.addWidget(info_card)
+        right.addStretch(1)
+        outer.addLayout(right)
+        outer.addStretch(1)
 
     def _populate_recent(self) -> None:
         self._recent_list.clear()
         for path in _load_recent_projects():
             item = QListWidgetItem(path)
             item.setData(Qt.ItemDataRole.UserRole, path)
+            item.setToolTip(path)  # 悬停显示完整路径（万一还是超出）
             self._recent_list.addItem(item)
         if self._recent_list.count() == 0:
             empty = QListWidgetItem(tr("welcome_no_recent"))

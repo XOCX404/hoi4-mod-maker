@@ -142,15 +142,28 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         self._status_info.setText(tr("status_ready"))
 
     def _on_smooth_coast(self) -> None:
-        """平滑海岸线（在生成省份之前用）。"""
+        """平滑海岸线。有选区时只平滑选区内，否则全图。"""
         from domain.generators.coastline import smooth_coastline
         map_data = self._project.map_data
-        new_tile = smooth_coastline(map_data.tile_map)
+
+        # 检查画布是否有选区（变换工具框选的区域）
+        sel = getattr(self._canvas, '_selection_rect', None)
+        if sel:
+            x0, y0, x1, y1 = sel
+            # 转换为整数像素坐标 (region 参数是 y0, x0, y1, x1)
+            region = (int(y0), int(x0), int(y1), int(x1))
+        else:
+            region = None
+
+        new_tile = smooth_coastline(map_data.tile_map, region=region)
         map_data.tile_map[:] = new_tile
         self._canvas.tile_map = map_data.tile_map
-        self._canvas.schedule_full_render()
+        self._canvas._full_render()
         self._project.mark_dirty()
-        self._status_info.setText(tr("status_coast_smoothed"))
+        if region:
+            self._status_info.setText(tr("status_coast_smoothed_region"))
+        else:
+            self._status_info.setText(tr("status_coast_smoothed"))
 
     def _on_density_clear(self) -> None:
         """清除密度图，恢复均匀。"""
@@ -344,6 +357,7 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         self._status_info.setText(tr("status_auto_river"))
         QApplication.processEvents()
 
+        import numpy as np
         from domain.generators.river import generate_rivers
         river_map = generate_rivers(
             map_data.province_map,
@@ -351,13 +365,19 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
             map_data.tile_map,
         )
         map_data.river_map = river_map
-        self._canvas.river_map = river_map
-        self._canvas.schedule_full_render()
+        self._canvas._river_map = river_map
+        # 强制切到河流模式显示结果
+        self._tool_panel._switch_to_mode("river")
+        self._canvas._full_render()
 
-        self._status_info.setText(tr("status_auto_river_done"))
+        river_count = int(np.sum((river_map >= 3) & (river_map <= 11)))
+        self._status_info.setText(tr("status_auto_river_done") + f" ({river_count} px)")
 
     def _on_auto_terrain(self) -> None:
-        from services.terrain_service import smart_auto_terrain, TerrainGenConfig
+        from services.terrain_service import (
+            smart_auto_terrain, TerrainGenConfig,
+            compute_provincial_terrain_from_bmp,
+        )
         from commands.map.generate_terrain import GenerateTerrainCommand
         self._status_info.setText(tr("status_auto_terrain"))
         self.repaint()
@@ -372,10 +392,19 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         )
         cmd = GenerateTerrainCommand(map_data, new_terrain)
         self._cmd_history.execute(cmd)
+        # 单向同步：视觉 terrain.bmp → 属性 provincial_terrain dict
+        # 每个 land province 按多数地形自动推断属性，用户后续可在"地形(属性)"tab 微调
+        new_dict = compute_provincial_terrain_from_bmp(
+            map_data.terrain_map, map_data.province_map, map_data.tile_map
+        )
+        map_data.provincial_terrain.clear()
+        map_data.provincial_terrain.update(new_dict)
         self._project.mark_dirty()
         # 通知 canvas 地形数据已变 (触发重新渲染)
         self._canvas.terrain_map = map_data.terrain_map
-        self._status_info.setText(tr("status_auto_terrain_done"))
+        self._status_info.setText(
+            tr("status_auto_terrain_done") + f"（同步 {len(new_dict)} 个省份属性）"
+        )
 
     def _on_auto_height(self) -> None:
         from services.terrain_service import smart_auto_height
@@ -401,49 +430,79 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
     # ── 山脉画线 ──
 
     def _on_ridge_mode(self, enabled: bool) -> None:
-        """切换山脉画线模式。"""
+        """切换山脉画线模式 — 同步到 canvas。"""
         self._ridge_mode = enabled
-        self._ridge_points = []
+        self._canvas._ridge_mode = enabled
         if enabled:
             self._status_info.setText(tr("status_ridge_mode_on"))
         else:
+            # 退出模式时取消预览
+            if hasattr(self, '_ridge_backup'):
+                self._on_ridge_cancel()
             self._status_info.setText(tr("status_ridge_mode_off"))
 
-    def _on_ridge_click(self, y: int, x: int) -> None:
-        """山脉画线模式下的点击：收集点，松开鼠标时应用。"""
-        if not getattr(self, '_ridge_mode', False):
-            return
-        if not hasattr(self, '_ridge_points'):
-            self._ridge_points = []
-        self._ridge_points.append((y, x))
-
-    def _on_ridge_release(self) -> None:
-        """山脉画线模式下松开鼠标：用收集的点生成山脉。"""
-        points = getattr(self, '_ridge_points', [])
+    def _on_ridge_drawn(self, points: list) -> None:
+        """canvas 画线完成 → 进入预览模式（不立即应用）。"""
         if len(points) < 2:
-            self._ridge_points = []
             return
-
-        # 间隔采样（避免太多点）
+        # 间隔采样
         if len(points) > 100:
             step = len(points) // 100
             points = points[::step] + [points[-1]]
 
+        # 保存原始高度图 + 画线路径
+        self._ridge_backup = self._project.map_data.height_map.copy()
+        self._ridge_points = points
+
+        # 显示确认/取消按钮
+        self._tool_panel._height_page.show_ridge_confirm()
+
+        # 立即生成预览
+        self._apply_ridge_preview()
+        self._status_info.setText(tr("status_ridge_preview"))
+
+    def _apply_ridge_preview(self) -> None:
+        """用当前参数生成山脉预览（不修改 backup）。"""
+        if not hasattr(self, '_ridge_backup') or self._ridge_backup is None:
+            return
         from services.terrain_service import apply_mountain_ridge
         map_data = self._project.map_data
         peak = getattr(self, '_ridge_peak', 220)
         falloff = getattr(self, '_ridge_falloff', 80)
 
-        new_height = apply_mountain_ridge(
-            map_data.height_map, map_data.tile_map,
-            points, peak_height=peak, falloff_distance=float(falloff),
+        preview = apply_mountain_ridge(
+            self._ridge_backup, map_data.tile_map,
+            self._ridge_points, peak_height=peak, falloff_distance=float(falloff),
         )
-        map_data.height_map[:] = new_height
+        map_data.height_map[:] = preview
         self._canvas.height_map = map_data.height_map
-        self._canvas.schedule_full_render()
+        self._canvas._full_render()
+
+    def _on_ridge_preview(self) -> None:
+        """滑块变化 → 刷新预览。"""
+        self._apply_ridge_preview()
+
+    def _on_ridge_confirm(self) -> None:
+        """确认山脉 → 应用到高度图，清理预览状态。"""
+        self._ridge_backup = None
+        self._ridge_points = None
+        self._tool_panel._height_page.hide_ridge_confirm()
+        # 线已经画在 canvas 上，隐藏它
+        self._canvas._split_line_item.setVisible(False)
         self._project.mark_dirty()
-        self._ridge_points = []
         self._status_info.setText(tr("status_ridge_applied"))
+
+    def _on_ridge_cancel(self) -> None:
+        """取消山脉 → 恢复原始高度图。"""
+        if hasattr(self, '_ridge_backup') and self._ridge_backup is not None:
+            self._project.map_data.height_map[:] = self._ridge_backup
+            self._canvas.height_map = self._project.map_data.height_map
+            self._canvas._full_render()
+        self._ridge_backup = None
+        self._ridge_points = None
+        self._tool_panel._height_page.hide_ridge_confirm()
+        self._canvas._split_line_item.setVisible(False)
+        self._status_info.setText(tr("status_ridge_mode_on"))
 
     # ═══════════════════════ Continent ═══════════════════════
 

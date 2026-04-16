@@ -65,6 +65,7 @@ class ApplicationController:
         bus.subscribe("country_changed", self._on_country_changed)
         bus.subscribe("vp_changed", self._on_vp_changed)
         bus.subscribe("province_map_regenerated", self._on_province_regen)
+        bus.subscribe("province_gaps_changed", self._on_province_gaps)
 
     # ═══════════════════════ 模式切换 ═══════════════════════
 
@@ -95,6 +96,8 @@ class ApplicationController:
             self._refresh_state_colors()
         elif mode == "country":
             self._refresh_country_colors()
+        elif mode == "province_terrain":
+            self._refresh_provincial_terrain_colors()
 
         return self._MODE_NAMES.get(mode, mode)
 
@@ -144,14 +147,22 @@ class ApplicationController:
                 break
         coastal = _adj and ptype == "陆地"
 
-        from data.terrain_types import GRAPHICAL_TERRAIN_BY_INDEX
-        terrain_data = self._canvas.terrain_map[mask]
-        if len(terrain_data) > 0:
-            terrain_idx = int(np.bincount(terrain_data).argmax())
-            gt = GRAPHICAL_TERRAIN_BY_INDEX.get(terrain_idx)
-            terrain_name = gt.name_cn if gt else "未知"
+        # 优先读 provincial_terrain dict（属性层 = gameplay 真值）
+        # 没有时才退回 terrain.bmp 多数像素（视觉层推断）
+        from data.terrain_types import GRAPHICAL_TERRAIN_BY_INDEX, TERRAIN_TYPES
+        prov_terrain = self._project.map_data.provincial_terrain
+        if pid in prov_terrain:
+            ptype_key = prov_terrain[pid]
+            terrain_obj = TERRAIN_TYPES.get(ptype_key)
+            terrain_name = terrain_obj.name_cn if terrain_obj else ptype_key
         else:
-            terrain_name = "未知"
+            terrain_data = self._canvas.terrain_map[mask]
+            if len(terrain_data) > 0:
+                terrain_idx = int(np.bincount(terrain_data).argmax())
+                gt = GRAPHICAL_TERRAIN_BY_INDEX.get(terrain_idx)
+                terrain_name = gt.name_cn if gt else "未知"
+            else:
+                terrain_name = "未知"
 
         info = {
             "ptype": ptype, "terrain": terrain_name,
@@ -172,6 +183,49 @@ class ApplicationController:
         rgb = self._project.state_mgr.build_state_color_map(self._canvas.province_map)
         self._canvas.set_state_colors(rgb)
         self._refresh_vp_data()
+        # 统计未分配的 land province → 状态栏提示
+        self._emit_unassigned_count()
+
+    def _emit_unassigned_count(self) -> None:
+        """统计未分配到 state 的 land province 数量，发送到状态栏。"""
+        from data.constants import TILE_LAND
+        tm = self._project.map_data.tile_map
+        pm = self._canvas.province_map
+        if pm is None or pm.max() == 0:
+            return
+        # 所有 land province ID
+        land_pids = set(np.unique(pm[tm == TILE_LAND]).tolist())
+        land_pids.discard(0)
+        count = self._project.state_mgr.count_unassigned_provinces(land_pids)
+        if count > 0:
+            self._project.event_bus.emit(
+                "status_message",
+                text=f"⚠️ 有 {count} 个省份未分配到 state（画布上红色高亮）"
+            )
+        else:
+            self._project.event_bus.emit(
+                "status_message", text="✅ 所有省份都已分配到 state"
+            )
+
+    def _refresh_provincial_terrain_colors(self) -> None:
+        """计算每个 province 的 gameplay terrain 颜色，传给 canvas。
+        像素颜色 = 该 province 的 provincial_terrain[pid] 对应的颜色。
+        未指定 type 的 province 显示灰色。"""
+        province_map = self._canvas.province_map
+        if int(province_map.max()) == 0:
+            return
+        from data.terrain_types import TERRAIN_TYPES
+        prov_terrain = self._project.map_data.provincial_terrain
+        n = int(province_map.max()) + 1
+        # pid → RGB（0=灰色 fallback）
+        lookup = np.full((n, 3), 80, dtype=np.uint8)
+        for pid, ptype in prov_terrain.items():
+            if pid < n and ptype in TERRAIN_TYPES:
+                r, g, b = TERRAIN_TYPES[ptype].color
+                lookup[pid] = (r, g, b)
+        # 按 province_map 索引上色
+        rgb = lookup[province_map]
+        self._canvas.set_provincial_terrain_colors(rgb)
 
     def _refresh_vp_data(self) -> None:
         vp_dict: dict[int, int] = {}
@@ -202,8 +256,16 @@ class ApplicationController:
         full = event.data.get("full", False)
         bbox = event.data.get("bbox")
         self._canvas._rebind_aliases()
+        # province_terrain 模式下，渲染前先刷新颜色（属性变化要立即反映）
+        if self._canvas.display_mode == "province_terrain":
+            self._refresh_provincial_terrain_colors()
         if full or bbox is None:
+            # 清除省份边界缓存，确保合并/切割后边界线刷新
+            self._canvas._border_cache = None
+            if hasattr(self._canvas, '_border_base_pixmap'):
+                self._canvas._border_base_pixmap = None
             self._canvas._full_render()
+            self._canvas._render_province_overlay()
         else:
             x0, y0, x1, y1 = bbox
             self._canvas._partial_render(x0, y0, x1, y1)
@@ -211,6 +273,17 @@ class ApplicationController:
     def _on_province_count(self, event) -> None:
         # 由 MainWindow 处理状态栏更新
         pass
+
+    def _on_province_gaps(self, event) -> None:
+        """省份 ID 空洞变化 → 更新工具面板 + 状态栏提示。"""
+        gap_ids = event.data.get("gap_ids", [])
+        self._panel.update_province_gaps(gap_ids)
+        # 状态栏也提示（不管当前在哪个页面都能看到）
+        if gap_ids:
+            self.event_bus.emit(
+                "status_message",
+                text=f"缺失省份 ID: {len(gap_ids)} 个（切割可自动补回）",
+            )
 
     def _on_state_changed(self, event) -> None:
         """State 数据变化 → 刷新 UI。"""

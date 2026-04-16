@@ -27,6 +27,9 @@ class HeightPage(QWidget):
     ridge_mode_toggled = pyqtSignal(bool)       # 山脉画线模式开关
     ridge_peak_changed = pyqtSignal(int)         # 山峰高度
     ridge_falloff_changed = pyqtSignal(int)      # 衰减距离
+    ridge_preview_requested = pyqtSignal()       # 请求刷新预览
+    ridge_confirmed = pyqtSignal()               # 确认应用山脉
+    ridge_cancelled = pyqtSignal()               # 取消山脉
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -37,13 +40,43 @@ class HeightPage(QWidget):
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(10)
 
+        # ═══════ 🏔 顶部：一键智能生成高度（推荐）═══════
+        from ui.styles import _ACCENT
+        auto_top_box = _make_section("🏔 一键生成高度图（推荐）")
+        auto_top_layout = auto_top_box.layout()
+
+        auto_top_btn = QPushButton("🏔 智能生成高度图")
+        auto_top_btn.setMinimumHeight(44)
+        auto_top_btn.setStyleSheet(
+            f"QPushButton {{"
+            f"  background: {_ACCENT};"
+            f"  color: white;"
+            f"  border: none;"
+            f"  border-radius: 6px;"
+            f"  font-size: 15px;"
+            f"  font-weight: 600;"
+            f"  padding: 8px;"
+            f"}}"
+            f"QPushButton:hover {{ background: #9090ff; }}"
+        )
+        auto_top_btn.setToolTip("根据陆海划分自动生成有起伏的高度图。详细参数在下方")
+        auto_top_btn.clicked.connect(self.auto_height_requested.emit)
+        auto_top_layout.addWidget(auto_top_btn)
+
+        auto_top_tip = QLabel("画完陆海就点这个，自动生成合理高度。下方参数可调细节。")
+        auto_top_tip.setStyleSheet(f"color: {_DIM}; font-size: 12px; padding: 4px 2px;")
+        auto_top_tip.setWordWrap(True)
+        auto_top_layout.addWidget(auto_top_tip)
+
+        lay.addWidget(auto_top_box)
+
         # ── 使用说明 ──
         hint = QLabel(tr("height_hint"))
         hint.setStyleSheet(f"color: {_DIM}; font-size: 12px; padding: 8px;")
         hint.setWordWrap(True)
         lay.addWidget(hint)
 
-        # ── 智能生成 ──
+        # ── 详细参数（原智能生成区）──
         gen_box = _make_section(tr("height_section_auto_gen"))
         gl = gen_box.layout()
 
@@ -157,6 +190,33 @@ class HeightPage(QWidget):
         )
         rl.addWidget(self._ridge_falloff_slider)
 
+        # 确认/取消按钮（画完线后显示）
+        self._ridge_confirm_row = QWidget()
+        cr = QHBoxLayout(self._ridge_confirm_row)
+        cr.setContentsMargins(0, 8, 0, 0)
+        cr.setSpacing(8)
+
+        self._ridge_cancel_btn = QPushButton(tr("btn_cancel"))
+        self._ridge_cancel_btn.setStyleSheet(_SECONDARY_BTN_STYLE)
+        self._ridge_cancel_btn.clicked.connect(self.ridge_cancelled.emit)
+        cr.addWidget(self._ridge_cancel_btn)
+
+        self._ridge_confirm_btn = QPushButton(tr("height_btn_ridge_confirm"))
+        self._ridge_confirm_btn.setStyleSheet(
+            "QPushButton { background: #22c55e; color: white; padding: 8px;"
+            " border-radius: 4px; font-weight: bold; font-size: 13px; }"
+            "QPushButton:hover { background: #2ad66a; }"
+        )
+        self._ridge_confirm_btn.clicked.connect(self.ridge_confirmed.emit)
+        cr.addWidget(self._ridge_confirm_btn)
+
+        rl.addWidget(self._ridge_confirm_row)
+        self._ridge_confirm_row.hide()
+
+        # 滑块变化时请求刷新预览
+        self._ridge_peak_slider.valueChanged.connect(lambda _: self._on_ridge_param_changed())
+        self._ridge_falloff_slider.valueChanged.connect(lambda _: self._on_ridge_param_changed())
+
         lay.addWidget(ridge_box)
 
         # ── 手动画笔 ──
@@ -224,3 +284,16 @@ class HeightPage(QWidget):
             noise_amplitude=float(self._mountain_slider.value()),
             seed=self._height_seed_spin.value(),
         )
+
+    def show_ridge_confirm(self) -> None:
+        """画完线后显示确认/取消按钮。"""
+        self._ridge_confirm_row.show()
+
+    def hide_ridge_confirm(self) -> None:
+        """隐藏确认/取消按钮。"""
+        self._ridge_confirm_row.hide()
+
+    def _on_ridge_param_changed(self) -> None:
+        """滑块变化时，如果确认按钮可见（预览中），请求刷新预览。"""
+        if self._ridge_confirm_row.isVisible():
+            self.ridge_preview_requested.emit()

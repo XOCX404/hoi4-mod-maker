@@ -1,10 +1,10 @@
 """
-工具面板 — 暗色主题，12 种编辑模式，模式切换标签页
+工具面板 — 暗色主题，7 个图标导航模式 + 子标签页
 
-各页面已解耦为独立 QWidget 类, ToolPanel 负责:
-1. 实例化各 page 并加入 QStackedWidget
-2. 转发 page 信号到自身同名信号 (保持 MainWindow 连接不变)
-3. 转发公共更新方法到对应 page
+重构自 13 模式分组列表 → 7 个图标按钮（画地图/省份/地形/河流/国家与区域/后勤/设置）。
+复合模式内用水平子标签页切换子页面，stack 仍保留全部 13 个原始 page。
+对外发射的 mode_id 不变（land/density/province/height/terrain/river/state/...），
+MainWindow / Canvas / Controller 零改动。
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
@@ -12,43 +12,74 @@ from PyQt5.QtWidgets import (
     QFrame, QStackedWidget, QScrollArea,
     QSizePolicy,
 )
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QSize
 
 from data.constants import BRUSH_DEFAULT
 from ui.i18n import tr
 
-# 色板 / 样式常量从统一位置 import
 from ui.styles import (
-    _BG, _INPUT_BG, _BORDER, _TEXT, _ACCENT,
+    _BG, _INPUT_BG, _BORDER, _TEXT, _ACCENT, _DIM,
     _SECTION_STYLE, _SUCCESS_BTN_STYLE,
 )
 
 
-# ── 分组折叠模式栏 ─────────────────────────────────────────
-_GROUP_HEADER_STYLE = f"""
-    QPushButton {{
-        background: {_INPUT_BG};
-        border: none;
-        border-left: 3px solid {_ACCENT};
-        color: {_ACCENT};
-        font-size: 13px;
-        font-weight: 700;
-        text-align: left;
-        padding: 10px 12px;
-        margin: 0;
-    }}
-    QPushButton:hover {{
-        background: rgba(108, 108, 240, 0.08);
-    }}
-"""
+# ── 7 个导航模式定义 ─────────────────────────────────────────
+# (nav_id, icon, i18n_key, [(sub_mode_id, i18n_key, risk), ...], nav_tooltip)
+#
+# 风险等级（提示用户哪些操作影响游戏 / 易崩溃）：
+#   "🎨" 渲染层（纯视觉，绝对安全）
+#   "🟢" 基础数据（必填但低风险）
+#   "🟠" 影响游戏机制（需谨慎）
+#   "🔴" 崩溃高发区（必须严格按规范）
+_NAV_MODES: list[tuple[str, str, str, list[tuple[str, str, str]], str]] = [
+    ("map_draw", "🏖", "nav_map_draw", [
+        ("land", "tab_land", "🟢"),
+        ("density", "tab_density", "🟢"),
+    ], "🟢 基础数据（陆海划分、省份密度）— 低崩溃风险"),
+    ("province", "🧩", "nav_province", [
+        ("province", "", "🟢"),
+    ], "🟢 省份编辑 — 基础 gameplay 数据"),
+    ("terrain_group", "⛰", "nav_terrain", [
+        ("height", "tab_height", "🟠"),
+        ("terrain", "tab_terrain", "🎨"),
+        ("province_terrain", "tab_province_terrain", "🟢"),
+    ], "⛰ 地形组：🟠高度 → 🎨视觉地形(自动生成) → 🟢属性地形(微调)"),
+    ("river", "💧", "nav_river", [
+        ("river", "", "🔴"),
+    ], "🔴 河流 — 崩溃高发区！调色板严格(0-4,6-7,9-11)+必须正交"),
+    ("region", "🏛", "nav_region", [
+        ("state", "tab_state", "🟢"),
+        ("country", "tab_country", "🟢"),
+        ("continent", "tab_continent", "🟢"),
+    ], "🟢 区域行政（州/国家/大陆）— gameplay 数据"),
+    ("logistics_group", "🛤", "nav_logistics", [
+        ("strategic_region", "tab_strategic_region", "🟠"),
+        ("logistics", "tab_logistics", "🟠"),
+    ], "🟠 物流系统（战略区/铁路/补给）— 影响补给机制"),
+    ("settings_group", "⚙", "nav_settings", [
+        ("colormap", "tab_colormap", "🎨"),
+        ("default_map", "tab_default_map", "🟠"),
+    ], "⚙ 设置（🎨 colormap=纯视觉/🟠 default_map=配置）"),
+]
 
-_MODE_BTN_STYLE = f"""
+
+# ── 风险标签 → 颜色（用于 sub tab 文字） ─────────────────────
+_RISK_COLORS = {
+    "🎨": "#7DD3FC",  # 浅蓝 — 渲染层，安全
+    "🟢": "#86EFAC",  # 浅绿 — 基础数据，低风险
+    "🟠": "#FDBA74",  # 橙色 — 影响游戏，需谨慎
+    "🔴": "#FCA5A5",  # 浅红 — 崩溃高发，需严格遵守规范
+}
+
+
+# ── 图标模式导航栏 ───────────────────────────────────────────
+_ICON_BTN_STYLE = f"""
     QPushButton {{
         background: transparent;
         border: none;
         border-left: 3px solid transparent;
-        color: {_TEXT};
-        padding: 8px 12px 8px 20px;
+        color: {_DIM};
+        padding: 10px 12px;
         font-size: 13px;
         font-weight: 400;
         text-align: left;
@@ -67,78 +98,138 @@ _MODE_BTN_STYLE = f"""
 """
 
 
-class _GroupedModeBar(QWidget):
-    """分组折叠模式导航栏."""
-    mode_changed = pyqtSignal(str)
+class _IconModeBar(QWidget):
+    """7 个图标导航按钮（紧凑竖列）。"""
+    nav_changed = pyqtSignal(str)  # 发射 nav_id
 
-    def __init__(
-        self,
-        groups: list[tuple[str, list[tuple[str, str]]]],
-        parent=None,
-    ):
+    def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         self._buttons: dict[str, QPushButton] = {}
-        self._group_widgets: dict[str, QWidget] = {}
         self._btn_group = QButtonGroup(self)
         self._btn_group.setExclusive(True)
 
-        for group_name, modes in groups:
-            header = QPushButton(f"▼  {group_name}")
-            header.setStyleSheet(_GROUP_HEADER_STYLE)
-            header.setCursor(Qt.CursorShape.PointingHandCursor)
-            layout.addWidget(header)
-
-            container = QWidget()
-            vbox = QVBoxLayout(container)
-            vbox.setContentsMargins(0, 0, 0, 4)
-            vbox.setSpacing(0)
-
-            for mid, label in modes:
-                btn = QPushButton(label)
-                btn.setCheckable(True)
-                btn.setProperty("mode_id", mid)
-                btn.setStyleSheet(_MODE_BTN_STYLE)
-                btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-                self._btn_group.addButton(btn)
-                self._buttons[mid] = btn
-                vbox.addWidget(btn)
-
-            layout.addWidget(container)
-            self._group_widgets[group_name] = container
-
-            header.setProperty("group_name", group_name)
-            header.setProperty("collapsed", False)
-            header.clicked.connect(
-                lambda checked=False, h=header, c=container: self._toggle_group(h, c)
-            )
+        for nav_id, icon, label_key, _subs, tooltip in _NAV_MODES:
+            btn = QPushButton(f"  {icon}  {tr(label_key)}")
+            btn.setCheckable(True)
+            btn.setProperty("nav_id", nav_id)
+            btn.setStyleSheet(_ICON_BTN_STYLE)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn.setToolTip(tooltip)  # 风险等级提示
+            self._btn_group.addButton(btn)
+            self._buttons[nav_id] = btn
+            layout.addWidget(btn)
 
         self._btn_group.buttonClicked.connect(
-            lambda btn: self.mode_changed.emit(btn.property("mode_id"))
+            lambda btn: self.nav_changed.emit(btn.property("nav_id"))
         )
 
-        if self._buttons:
-            first = list(self._buttons.values())[0]
-            first.setChecked(True)
+        # 默认选中第一个
+        first = list(self._buttons.values())[0]
+        first.setChecked(True)
 
-    def _toggle_group(self, header: QPushButton, container: QWidget) -> None:
-        collapsed = header.property("collapsed")
-        if collapsed:
-            container.show()
-            header.setText(header.text().replace("▶ ", "▼ "))
-            header.setProperty("collapsed", False)
-        else:
-            container.hide()
-            header.setText(header.text().replace("▼ ", "▶ "))
-            header.setProperty("collapsed", True)
+
+# ── 子模式标签栏 ─────────────────────────────────────────────
+_TAB_STYLE = f"""
+    QPushButton {{
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: {_DIM};
+        padding: 6px 14px;
+        font-size: 12px;
+        font-weight: 500;
+    }}
+    QPushButton:checked {{
+        border-bottom: 2px solid {_ACCENT};
+        color: white;
+        font-weight: 600;
+    }}
+    QPushButton:hover:!checked {{
+        color: {_TEXT};
+    }}
+"""
+
+
+class _SubModeTabBar(QWidget):
+    """水平子标签栏 — 只在复合模式（子模式 > 1）时显示。"""
+    sub_mode_changed = pyqtSignal(str)  # 发射 sub_mode_id
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(34)
+        self.setStyleSheet(f"background: {_INPUT_BG}; border-bottom: 1px solid {_BORDER};")
+
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(8, 0, 8, 0)
+        self._layout.setSpacing(0)
+
+        self._btn_group = QButtonGroup(self)
+        self._btn_group.setExclusive(True)
+        self._btn_group.buttonClicked.connect(self._on_tab_clicked)
+        self._buttons: list[QPushButton] = []
+
+        self.hide()
+
+    def set_tabs(self, tabs: list[tuple[str, str, str]]) -> None:
+        """设置子标签列表。tabs=[(mode_id, i18n_key, risk), ...]。
+        risk 是风险等级 emoji（🎨/🟢/🟠/🔴），显示在按钮文字前。
+        如果只有一个 tab（或 label_key 为空），则隐藏。"""
+        # 清除旧按钮
+        for btn in self._buttons:
+            self._btn_group.removeButton(btn)
+            btn.setParent(None)
+            btn.deleteLater()
+        self._buttons.clear()
+
+        # 清除 stretch items
+        while self._layout.count():
+            self._layout.takeAt(0)
+
+        # 只有 >1 个子模式且都有 label 时才显示
+        visible_tabs = [(mid, lk, risk) for mid, lk, risk in tabs if lk]
+        if len(visible_tabs) <= 1:
+            self.hide()
+            return
+
+        self._layout.addStretch()
+        for mode_id, label_key, risk in visible_tabs:
+            # 风险标签作为前缀显示
+            btn_text = f"{risk} {tr(label_key)}" if risk else tr(label_key)
+            btn = QPushButton(btn_text)
+            btn.setCheckable(True)
+            btn.setProperty("sub_mode_id", mode_id)
+            btn.setStyleSheet(_TAB_STYLE)
+            self._btn_group.addButton(btn)
+            self._buttons.append(btn)
+            self._layout.addWidget(btn)
+        self._layout.addStretch()
+
+        # 默认选中第一个
+        if self._buttons:
+            self._buttons[0].setChecked(True)
+
+        self.show()
+
+    def _on_tab_clicked(self, btn: QPushButton) -> None:
+        mid = btn.property("sub_mode_id")
+        if mid:
+            self.sub_mode_changed.emit(mid)
+
+    def select_tab(self, mode_id: str) -> None:
+        """外部选中某个子标签。"""
+        for btn in self._buttons:
+            if btn.property("sub_mode_id") == mode_id:
+                btn.setChecked(True)
+                break
 
 
 # ── 主面板 ────────────────────────────────────────────────
 class ToolPanel(QWidget):
-    """左侧工具面板 — 12 种模式, 信号转发到各 page"""
+    """左侧工具面板 — 7 个导航图标 + 子标签页 + 13 个页面 stack"""
 
     # 信号 (保持与 MainWindow 的连接不变)
     mode_changed = pyqtSignal(str)
@@ -147,6 +238,10 @@ class ToolPanel(QWidget):
     brush_size_changed = pyqtSignal(int)
     terrain_index_changed = pyqtSignal(int)
     terrain_brush_mode_changed = pyqtSignal(bool)
+    # 属性地形：选了哪种 provincial terrain 类型
+    province_terrain_type_changed = pyqtSignal(str)
+    # 属性地形：分配模式开关
+    province_terrain_assign_mode_changed = pyqtSignal(bool)
     height_value_changed = pyqtSignal(int)
     generate_provinces_requested = pyqtSignal(int)
     validate_requested = pyqtSignal()
@@ -166,8 +261,11 @@ class ToolPanel(QWidget):
     ridge_mode_toggled = pyqtSignal(bool)
     ridge_peak_changed = pyqtSignal(int)
     ridge_falloff_changed = pyqtSignal(int)
+    ridge_preview_requested = pyqtSignal()
+    ridge_confirmed = pyqtSignal()
+    ridge_cancelled = pyqtSignal()
     export_requested = pyqtSignal()
-    split_province_requested = pyqtSignal()
+    split_mode_toggled = pyqtSignal(bool)
     lasso_province_toggled = pyqtSignal(bool)
     merge_mode_toggled = pyqtSignal(bool)
     regen_mode_toggled = pyqtSignal(bool)
@@ -231,6 +329,20 @@ class ToolPanel(QWidget):
         self.setMinimumWidth(300)
         self.setMaximumWidth(520)
         self.setStyleSheet(f"background: {_BG};")
+
+        # nav_id → 子模式列表 (查找表)
+        self._nav_subs: dict[str, list[tuple[str, str, str]]] = {}
+        # sub_mode_id → nav_id (反向查找)
+        self._sub_to_nav: dict[str, str] = {}
+        # sub_mode_id → risk emoji (用于显示风险标签)
+        self._sub_risks: dict[str, str] = {}
+        for nav_id, _icon, _label, subs, _tooltip in _NAV_MODES:
+            self._nav_subs[nav_id] = subs
+            for sub_id, _sub_label, risk in subs:
+                self._sub_to_nav[sub_id] = nav_id
+                self._sub_risks[sub_id] = risk
+
+        self._current_nav = ""
         self._init_ui()
 
     # ── UI 构建 ───────────────────────────────────────────
@@ -239,37 +351,22 @@ class ToolPanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # 分组折叠模式栏
-        self._mode_tabs = _GroupedModeBar([
-            (tr("group_map_drawing"), [
-                ("land", tr("mode_land")),
-                ("density", tr("mode_density")),
-                ("province", tr("mode_province")),
-                ("height", tr("mode_height")),
-                ("terrain", tr("mode_terrain")),
-                ("river", tr("mode_river_nav")),
-            ]),
-            (tr("group_region_mgmt"), [
-                ("state", tr("mode_state")),
-                ("country", tr("mode_country")),
-                ("continent", tr("mode_continent")),
-                ("strategic_region", tr("mode_strategic_region")),
-            ]),
-            (tr("group_logistics_config"), [
-                ("logistics", tr("mode_logistics")),
-                ("colormap", tr("mode_colormap")),
-                ("default_map", tr("mode_default_map")),
-            ]),
-        ])
-        self._mode_tabs.mode_changed.connect(self._on_mode_changed)
-        root.addWidget(self._mode_tabs)
+        # 图标导航栏 (7 个按钮)
+        self._icon_bar = _IconModeBar()
+        self._icon_bar.nav_changed.connect(self._on_nav_changed)
+        root.addWidget(self._icon_bar)
+
+        # 子标签栏 (复合模式时显示)
+        self._sub_tabs = _SubModeTabBar()
+        self._sub_tabs.sub_mode_changed.connect(self._on_sub_mode_changed)
+        root.addWidget(self._sub_tabs)
 
         # 模式操作提示条
         from ui.mode_hint_bar import ModeHintBar
         self._hint_bar = ModeHintBar()
         root.addWidget(self._hint_bar)
 
-        # 页面内容滚动区域 (只包裹 stack，mode_tabs 固定在上方)
+        # 页面内容滚动区域
         self._page_scroll = QScrollArea()
         self._page_scroll.setWidgetResizable(True)
         self._page_scroll.setFrameShape(QFrame.NoFrame)
@@ -302,6 +399,7 @@ class ToolPanel(QWidget):
         from features.map.density.page import DensityPage
         from features.map.province.page import ProvincePage
         from features.map.terrain.page import TerrainPage
+        from features.map.province_terrain.page import ProvincialTerrainPage
         from features.map.height.page import HeightPage
         from features.map.river.page import RiverPage
         from features.map.state.page import StatePage
@@ -317,6 +415,7 @@ class ToolPanel(QWidget):
         self._density_page = DensityPage()
         self._province_page = ProvincePage()
         self._terrain_page = TerrainPage()
+        self._province_terrain_page = ProvincialTerrainPage()
         self._height_page = HeightPage()
         self._river_page = RiverPage()
         self._state_page = StatePage()
@@ -334,6 +433,7 @@ class ToolPanel(QWidget):
             ("province", self._province_page),
             ("height", self._height_page),
             ("terrain", self._terrain_page),
+            ("province_terrain", self._province_terrain_page),
             ("river", self._river_page),
             ("state", self._state_page),
             ("country", self._country_page),
@@ -385,7 +485,7 @@ class ToolPanel(QWidget):
 
     def _connect_province_signals(self) -> None:
         p = self._province_page
-        p.split_province_requested.connect(self.split_province_requested)
+        p.split_mode_toggled.connect(self.split_mode_toggled)
         p.lasso_province_toggled.connect(self.lasso_province_toggled)
         p.merge_mode_toggled.connect(self.merge_mode_toggled)
         p.regen_mode_toggled.connect(self.regen_mode_toggled)
@@ -398,6 +498,9 @@ class ToolPanel(QWidget):
         p.terrain_brush_size_changed.connect(self.terrain_brush_size_changed)
         p.terrain_soft_edge_changed.connect(self.terrain_soft_edge_changed)
         p.auto_terrain_requested.connect(self.auto_terrain_requested)
+        # 属性地形 page 信号
+        self._province_terrain_page.type_changed.connect(self.province_terrain_type_changed)
+        self._province_terrain_page.assign_mode_changed.connect(self.province_terrain_assign_mode_changed)
 
     def _connect_height_signals(self) -> None:
         p = self._height_page
@@ -407,6 +510,9 @@ class ToolPanel(QWidget):
         p.ridge_mode_toggled.connect(self.ridge_mode_toggled)
         p.ridge_peak_changed.connect(self.ridge_peak_changed)
         p.ridge_falloff_changed.connect(self.ridge_falloff_changed)
+        p.ridge_preview_requested.connect(self.ridge_preview_requested)
+        p.ridge_confirmed.connect(self.ridge_confirmed)
+        p.ridge_cancelled.connect(self.ridge_cancelled)
 
     def _connect_river_signals(self) -> None:
         p = self._river_page
@@ -479,8 +585,8 @@ class ToolPanel(QWidget):
         return self._land_page._ref_opacity_slider
 
     @property
-    def mode_tabs(self) -> _GroupedModeBar:
-        return self._mode_tabs
+    def mode_tabs(self) -> _IconModeBar:
+        return self._icon_bar
 
     # 参考图控件 — 暴露给 MainWindow 直连画布
     @property
@@ -607,7 +713,23 @@ class ToolPanel(QWidget):
         return self._province_page._province_hint
 
     # ── 槽函数 ────────────────────────────────────────────
-    def _on_mode_changed(self, mode: str) -> None:
+    def _on_nav_changed(self, nav_id: str) -> None:
+        """图标导航点击 → 更新子标签栏 + 切到默认子模式。"""
+        self._current_nav = nav_id
+        subs = self._nav_subs.get(nav_id, [])
+        self._sub_tabs.set_tabs(subs)
+
+        # 切到该 nav 的第一个子模式
+        if subs:
+            first_sub = subs[0][0]
+            self._switch_to_mode(first_sub)
+
+    def _on_sub_mode_changed(self, mode: str) -> None:
+        """子标签切换 → 切页面 + 发射信号。"""
+        self._switch_to_mode(mode)
+
+    def _switch_to_mode(self, mode: str) -> None:
+        """切换到指定 mode_id，更新 stack、hint、信号。"""
         idx = self._mode_index.get(mode, 0)
         self._stack.setCurrentIndex(idx)
         # 切换模式时自动设工具为 brush（省份/state/country 模式除外）
@@ -641,3 +763,7 @@ class ToolPanel(QWidget):
     ) -> None:
         """填充国家属性字段"""
         self._country_page.update_country_info(tag, name, party, color, capital_name)
+
+    def update_province_gaps(self, gap_ids: list[int]) -> None:
+        """更新省份 ID 空洞提示"""
+        self._province_page.update_province_gaps(gap_ids)

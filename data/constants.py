@@ -190,6 +190,9 @@ REPLACE_PATHS = [
     "common/raids",
     "common/decisions",
 
+    # --- strategic_locations 引用原版省份 ID → 崩溃 (LastRead=strategic_locations.txt) ---
+    "common/strategic_locations",
+
     # ════════════════════════════════════════════════════════════
     # 阶段 5 "Nuke AI" 已回退（2026-04-08 实测）
     # 原计划加 7 条 replace_path：characters/names/ideas/national_focus/

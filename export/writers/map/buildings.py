@@ -62,9 +62,25 @@ def write_buildings(states, province_map, tile_map, output_dir, sea_ids=None,
         for p in provs:
             pid_to_state[int(p)] = sid
 
-    # 每个 state 写最小必需 entity 集合
+    # 每个 state 必须有全部建筑类型的 3D 位置，否则 HOI4 初始化除零崩溃
     lines = []
-    REQUIRED_STATE_ENTITIES = ("air_base", "rocket_site_spawn")
+    # 所有 state 都需要的建筑位置
+    REQUIRED_STATE_ENTITIES = (
+        "arms_factory", "industrial_complex", "air_base",
+        "anti_air_building", "bunker", "fuel_silo", "radar_station",
+        "nuclear_reactor_spawn", "rocket_site_spawn", "synthetic_refinery",
+        "supply_node",
+    )
+    # 沿海 state 额外需要的建筑位置
+    COASTAL_STATE_ENTITIES = ("dockyard", "coastal_bunker")
+
+    # 收集哪些 state 是沿海的
+    coastal_states = set()
+    for land_pid in (land_to_sea or {}):
+        s = pid_to_state.get(land_pid)
+        if s is not None:
+            coastal_states.add(s)
+
     for sid, provs in states.items():
         if not provs:
             continue
@@ -77,6 +93,11 @@ def write_buildings(states, province_map, tile_map, output_dir, sea_ids=None,
             lines.append(
                 f"{sid};{btype};{cx:.2f};11.00;{hoi4_y:.2f};0.00;0"
             )
+        if sid in coastal_states:
+            for btype in COASTAL_STATE_ENTITIES:
+                lines.append(
+                    f"{sid};{btype};{cx:.2f};11.00;{hoi4_y:.2f};0.00;0"
+                )
 
     # 只给真正沿海的省份写 naval_base_spawn
     # 验证坐标确实在该省份像素上，否则 HOI4 无限循环崩溃
@@ -94,6 +115,18 @@ def write_buildings(states, province_map, tile_map, output_dir, sea_ids=None,
         ok = (0 <= iy < h_map and 0 <= ix < w_map
               and province_map[iy, ix] == land_pid
               and tile_map[iy, ix] == TILE_LAND)
+        if not ok:
+            # 质心不在 LAND 像素 → 全省搜索 (province_map==pid AND tile_map==LAND) 的像素
+            # 这是 HOI4 报"Province X coastal but no port"崩溃的根因之一
+            valid_ys, valid_xs = np.where(
+                (province_map == land_pid) & (tile_map == TILE_LAND)
+            )
+            if len(valid_ys) > 0:
+                # 取距离原质心最近的合法像素
+                dist = (valid_ys.astype(float) - cy) ** 2 + (valid_xs.astype(float) - cx) ** 2
+                best = int(np.argmin(dist))
+                cy, cx = float(valid_ys[best]), float(valid_xs[best])
+                ok = True
         if ok:
             hoi4_y = MAP_HEIGHT - cy
             lines.append(

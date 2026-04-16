@@ -91,6 +91,38 @@ class TerrainPage(QWidget):
         outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(4)
 
+        # ═══════ 🎨 顶部：一键自动生成（推荐）═══════
+        from ui.styles import _ACCENT
+        auto_top_box = _make_section("🎨 一键生成地形（推荐）")
+        auto_top_layout = auto_top_box.layout()
+
+        auto_top_btn = QPushButton("🌋 基于高度图自动生成地形")
+        auto_top_btn.setMinimumHeight(44)
+        auto_top_btn.setStyleSheet(
+            f"QPushButton {{"
+            f"  background: {_ACCENT};"
+            f"  color: white;"
+            f"  border: none;"
+            f"  border-radius: 6px;"
+            f"  font-size: 15px;"
+            f"  font-weight: 600;"
+            f"  padding: 8px;"
+            f"}}"
+            f"QPushButton:hover {{"
+            f"  background: #9090ff;"
+            f"}}"
+        )
+        auto_top_btn.setToolTip("根据高度图自动画地形 + 自动同步属性地形。详细参数在下方")
+        auto_top_btn.clicked.connect(self.auto_terrain_requested.emit)
+        auto_top_layout.addWidget(auto_top_btn)
+
+        auto_top_tip = QLabel("根据高度图自动生成 + 同步属性层。调完高度就点这个。")
+        auto_top_tip.setStyleSheet(f"color: {_DIM}; font-size: 12px; padding: 4px 2px;")
+        auto_top_tip.setWordWrap(True)
+        auto_top_layout.addWidget(auto_top_tip)
+
+        outer.addWidget(auto_top_box)
+
         # 编辑模式切换: 按省份 vs 画笔
         mode_row = QHBoxLayout()
         self._terrain_mode_group = QButtonGroup(self)

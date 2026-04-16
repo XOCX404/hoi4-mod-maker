@@ -52,15 +52,13 @@ def export_full_mod(
     def _enabled(key: str) -> bool:
         return scope.get(key, True)
 
-    # 安全网：导出前强制压实 ID + 同步所有引用（state.provinces / VP / capital）
-    # 这是修复历史 bug：之前只压实 province_map，没更新 state/country 引用，
-    # 导致用户编辑过的 state/VP/首都可能指向不存在的省份
-    from domain.map_data import MapData as _MD
-    _tmp = _MD.__new__(_MD)
-    _tmp.province_map = province_map
-    _tmp.tile_map = tile_map
-    # 其他字段不需要，compact_with_references 只用 province_map
-    _tmp.compact_with_references(state_mgr=state_mgr, country_mgr=country_mgr)
+    # 压实省份 ID（可选，导入 MOD 时建议关闭以保留原 ID）
+    if _enabled("compact_ids"):
+        from domain.map_data import MapData as _MD
+        _tmp = _MD.__new__(_MD)
+        _tmp.province_map = province_map
+        _tmp.tile_map = tile_map
+        _tmp.compact_with_references(state_mgr=state_mgr, country_mgr=country_mgr)
     province_count = int(province_map.max())
 
     colors = generate_province_colors(province_count)
@@ -862,22 +860,70 @@ def _sync_terrain_with_tile(terrain_map: np.ndarray, tile_map: np.ndarray) -> No
 
 
 def _gen_heightmap(tm):
-    from scipy.ndimage import gaussian_filter
-    hm = np.full((MAP_HEIGHT, MAP_WIDTH), OCEAN_HEIGHT, dtype=np.float32)
-    hm[tm == TILE_LAND] = LAND_BASE_HEIGHT
-    hm[tm == TILE_LAKE] = SEA_LEVEL - 5
-    hm = gaussian_filter(hm, sigma=8)
-    # 平滑后强制拉回：海洋不超过海平面，陆地远高于海平面（避免海岸线凹陷）
-    hm[tm == TILE_SEA] = np.minimum(hm[tm == TILE_SEA], SEA_LEVEL - 5)
-    hm[tm == TILE_LAND] = np.maximum(hm[tm == TILE_LAND], SEA_LEVEL + 15)
-    hm[tm == TILE_LAKE] = np.clip(hm[tm == TILE_LAKE], SEA_LEVEL - 10, SEA_LEVEL - 1)
-    return np.clip(hm, 0, 255).astype(np.uint8)
+    """基于距离场生成自然渐变的 heightmap（接近 vanilla）。
+
+    旧算法：固定值 + 高斯模糊 + 强制拉回 → 海岸像悬崖（80-110 过渡带几乎为 0）
+    新算法：用距离场让高度随到对方的距离平滑变化
+        - 陆地：距海越远越高（海岸 96 → 内陆 130+）
+        - 海洋：距陆越远越深（浅海 94 → 深海 70-83）
+    预期效果：80-110 过渡带占 70%+，接近 vanilla 的 85%
+    """
+    from scipy.ndimage import distance_transform_edt, gaussian_filter
+
+    is_land = (tm == TILE_LAND)
+    is_sea = (tm == TILE_SEA)
+    is_lake = (tm == TILE_LAKE)
+
+    # 距离场：每个像素到最近"对方"的像素距离
+    dist_to_land = distance_transform_edt(~is_land)  # 海洋像素到最近陆地的距离
+    dist_to_sea = distance_transform_edt(~is_sea)    # 陆地像素到最近海洋的距离
+
+    hm = np.full((MAP_HEIGHT, MAP_WIDTH), SEA_LEVEL, dtype=np.float32)
+
+    # 陆地高度：海岸 96 → 内陆最高 160
+    # 系数 1.5/像素，封顶 +65（即最高 95+65=160）
+    hm[is_land] = SEA_LEVEL + np.clip(dist_to_sea[is_land] * 1.5, 1, 65)
+
+    # 海洋高度：浅海 94 → 深海最低 70
+    # 系数 0.8/像素，封顶 -25（即最深 95-25=70）
+    hm[is_sea] = SEA_LEVEL - np.clip(dist_to_land[is_sea] * 0.8, 1, 25)
+
+    # 陆地加随机起伏让山地不那么平坦（±20 范围）
+    rng = np.random.RandomState(42)
+    noise = gaussian_filter(rng.rand(MAP_HEIGHT, MAP_WIDTH), sigma=30) * 40
+    hm[is_land] += noise[is_land] - 20
+
+    # 小尺度柔化（避免锯齿断阶）
+    hm = gaussian_filter(hm, sigma=1.5)
+
+    # 守底线（保证 HOI4 海陆判定正确）
+    hm[is_land] = np.maximum(hm[is_land], SEA_LEVEL + 1)  # 陆地至少 96
+    hm[is_sea] = np.minimum(hm[is_sea], SEA_LEVEL - 1)    # 海至少 94
+    hm[is_lake] = SEA_LEVEL - 3
+
+    return np.clip(hm, 30, 255).astype(np.uint8)
 
 
 def _gen_terrain(tm):
+    """生成 terrain.bmp。陆地海岸 1-2 像素用 desert（黄沙色）模拟沙滩。
+
+    HOI4 的 desert 地形渲染颜色就是沙黄色，铺在海岸 1-2 像素上视觉效果
+    类似 vanilla 的沙滩带。只影响视觉（渲染），不影响 gameplay（因为
+    province 的主导地形是几十上百像素的 plains/forest，不会变沙漠）。
+    """
+    from scipy.ndimage import distance_transform_edt
+
     t = np.zeros((MAP_HEIGHT, MAP_WIDTH), dtype=np.uint8)
     for tile_type, name in DEFAULT_TERRAIN_FOR_TILE.items():
         t[tm == tile_type] = TERRAIN_PALETTE_INDEX[name]
+
+    # 海岸沙滩：距海 ≤ 2 像素的陆地用 desert（索引 3 = 沙黄色）
+    is_land = (tm == TILE_LAND)
+    is_sea = (tm == TILE_SEA)
+    dist_to_sea = distance_transform_edt(~is_sea)
+    beach_mask = is_land & (dist_to_sea <= 2)
+    t[beach_mask] = TERRAIN_PALETTE_INDEX["desert"]  # vanilla desert 渲染为沙黄色
+
     return t
 
 
@@ -894,13 +940,12 @@ def _write_normal_map(hm, output_dir):
     # 先缩到半尺寸再算法线（而不是算完再缩）
     h_small = hm.reshape(NH, 2, NW, 2).mean(axis=(1, 3)).astype(np.float32) / 255.0
 
-    # 用 numpy 差分代替 scipy.sobel（更快，结果近似）
-    # strength 控制法线强度: vanilla 的 R/G std≈11, 需要足够大的梯度
-    strength = 12.0
-    dx = np.zeros_like(h_small)
-    dy = np.zeros_like(h_small)
-    dx[:, 1:-1] = (h_small[:, 2:] - h_small[:, :-2]) * strength
-    dy[1:-1, :] = -(h_small[2:, :] - h_small[:-2, :]) * strength
+    # 用 scipy.sobel 算梯度（标准做法，比中心差分平滑）
+    # 新 heightmap 渐变范围更大，strength 降到 6（旧的 12 会过度起伏）
+    from scipy.ndimage import sobel
+    strength = 6.0
+    dx = sobel(h_small, axis=1) * strength
+    dy = -sobel(h_small, axis=0) * strength
 
     nx, ny, nz = -dx, -dy, np.ones_like(h_small)
     L = np.sqrt(nx**2 + ny**2 + nz**2)

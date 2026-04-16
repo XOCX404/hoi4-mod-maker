@@ -107,8 +107,25 @@ class InputMixin:
                 event.accept()
                 return
 
-            # 地形/高度/State/Country 模式：点击省份 → 委托 controller 处理
-            if self._display_mode in ("terrain", "height", "state", "country"):
+            # 高度模式 + 山脉画线：拖拽收集点
+            if self._display_mode == "height" and getattr(self, '_ridge_mode', False):
+                sx, sy = self._scene_pos(event)
+                if 0 <= sx < self.map_w and 0 <= sy < self.map_h:
+                    self._is_drawing = True
+                    self._ridge_drawing = True
+                    self._ridge_path = [(int(sy), int(sx))]
+                    # 初始化红线路径预览
+                    from PyQt5.QtGui import QPainterPath
+                    path = QPainterPath()
+                    path.moveTo(sx, sy)
+                    self._ridge_path_item.setPath(path)
+                    self._ridge_path_item.setVisible(True)
+                    self.stroke_started.emit()
+                event.accept()
+                return
+
+            # 地形/高度/State/Country/属性地形 模式：点击省份 → 委托 controller 处理
+            if self._display_mode in ("terrain", "height", "state", "country", "province_terrain"):
                 sx, sy = self._scene_pos(event)
                 if 0 <= sx < self.map_w and 0 <= sy < self.map_h:
                     pid = int(self._province_map[sy, sx])
@@ -124,14 +141,38 @@ class InputMixin:
                 event.accept()
                 return
 
+            # 省份模式 + 切割模式：旋转线切割
+            if self._display_mode == "province" and getattr(self, '_split_mode', False):
+                sx, sy = self._scene_pos(event)
+                if 0 <= sx < self.map_w and 0 <= sy < self.map_h:
+                    pid = int(self._province_map[int(sy), int(sx)])
+                    if pid > 0:
+                        if getattr(self, '_split_ready', False):
+                            # 点击确认切割 — 传质心、方向、鼠标点击位置
+                            import math
+                            self._split_ready = False
+                            self._split_line_item.setVisible(False)
+                            angle = getattr(self, '_split_angle', 0.0)
+                            self.split_line_drawn.emit(self._split_pid, [
+                                (self._split_cy, self._split_cx),
+                                (int(self._split_cy + 9999 * math.sin(angle)),
+                                 int(self._split_cx + 9999 * math.cos(angle))),
+                                (int(sy), int(sx)),  # 鼠标点击位置 → 这一侧切出去
+                            ])
+                        else:
+                            # 点击省份 → 初始化切割预览
+                            self._init_split_preview(pid)
+                event.accept()
+                return
+
             # 省份模式：左键只做选中 (扩张需走 lasso 框架工具, 不允许直接拖动改边界)
             if self._display_mode == "province":
                 sx, sy = self._scene_pos(event)
                 if 0 <= sx < self.map_w and 0 <= sy < self.map_h:
-                    pid = int(self._province_map[sy, sx])
+                    pid = int(self._province_map[int(sy), int(sx)])
                     if pid > 0:
                         self._selected_province_id = pid
-                        self._selected_province_tile = int(self._tile_map[sy, sx])
+                        self._selected_province_tile = int(self._tile_map[int(sy), int(sx)])
                         self.province_clicked.emit(pid)
                         self._render_province_overlay()
                 event.accept()
@@ -267,6 +308,27 @@ class InputMixin:
                 event.accept()
                 return
 
+        # 山脉画线拖拽中
+        if getattr(self, '_ridge_drawing', False) and self._is_drawing:
+            if 0 <= sx < self.map_w and 0 <= sy < self.map_h:
+                self._ridge_path.append((int(sy), int(sx)))
+                # 实时扩展红线预览
+                current_path = self._ridge_path_item.path()
+                current_path.lineTo(sx, sy)
+                self._ridge_path_item.setPath(current_path)
+            event.accept()
+            return
+
+        # 切割旋转线 — 鼠标移动更新角度
+        if getattr(self, '_split_ready', False):
+            import math
+            cx, cy = self._split_cx, self._split_cy
+            angle = math.atan2(sy - cy, sx - cx)
+            self._split_angle = angle
+            self._update_split_rotate_preview()
+            event.accept()
+            return
+
         if self._is_drawing and self._current_tool in ("brush", "eraser"):
             self._paint_at(sx, sy)
             event.accept()
@@ -329,6 +391,21 @@ class InputMixin:
                 self._is_drawing = False
                 self._last_draw_pos = None  # 清除插值起点
 
+                # 山脉画线释放 → 发射信号给 MainWindow 处理
+                if getattr(self, '_ridge_drawing', False):
+                    self._ridge_drawing = False
+                    path = getattr(self, '_ridge_path', [])
+                    # 隐藏红线（接下来显示预览山脉）
+                    self._ridge_path_item.setVisible(False)
+                    if len(path) >= 2:
+                        self.ridge_drawn.emit(path)
+                    self._ridge_path = []
+                    self.stroke_ended.emit()
+                    event.accept()
+                    return
+
+                # (切割模式用点击确认，不用释放)
+
                 # 框架工具：先 release，再清理，再 end_undo，最后刷新
                 if self._framework_tool is not None:
                     sx, sy = self._scene_pos(event)
@@ -342,10 +419,20 @@ class InputMixin:
                         self._show_expand_overlay()
                     else:
                         self._clear_lasso_visual()
-                    self._mark_dirty(0, 0, self.map_w, self.map_h)
-                    self._flush_dirty()
+                    # 清边界缓存 + 全量刷新
+                    self._border_cache = None
+                    if hasattr(self, '_border_base_pixmap'):
+                        self._border_base_pixmap = None
+                    self._full_render()
                     if self._display_mode == "province":
                         self._render_province_overlay()
+                    # 检测省份 ID 空洞（扩张可能吞掉整个邻居）
+                    import numpy as np
+                    pm = self._province_map
+                    max_id = int(pm.max())
+                    existing = set(np.unique(pm)) - {0}
+                    gap_ids = sorted(set(range(1, max_id + 1)) - existing)
+                    self.province_gaps_detected.emit(gap_ids)
                     self.stroke_ended.emit()
                     event.accept()
                     return
@@ -444,3 +531,40 @@ class InputMixin:
                 self.setCursor(Qt.CursorShape.CrossCursor if self._current_tool != "pan"
                               else Qt.CursorShape.OpenHandCursor)
         super().keyReleaseEvent(event)
+
+    def _init_split_preview(self, pid: int) -> None:
+        """初始化切割预览：计算省份质心和 bbox，显示线。"""
+        import numpy as np
+        mask = self._province_map == pid
+        ys, xs = np.where(mask)
+        if len(ys) == 0:
+            return
+        self._split_pid = pid
+        self._split_cy = int(np.mean(ys))
+        self._split_cx = int(np.mean(xs))
+        self._split_bbox = (int(ys.min()), int(xs.min()),
+                            int(ys.max()), int(xs.max()))
+        self._split_angle = 0.0
+        self._split_ready = True
+        self._update_split_rotate_preview()
+
+    def _update_split_rotate_preview(self) -> None:
+        """实时更新切割旋转线预览。线穿过省份质心，长度覆盖 bbox。"""
+        import math
+        from PyQt5.QtGui import QPainterPath
+
+        cx = self._split_cx
+        cy = self._split_cy
+        angle = getattr(self, '_split_angle', 0.0)
+        y0, x0, y1, x1 = self._split_bbox
+
+        # 线长 = bbox 对角线，确保完全穿过省份
+        diag = math.sqrt((y1 - y0) ** 2 + (x1 - x0) ** 2) / 2 + 10
+        dx = diag * math.cos(angle)
+        dy = diag * math.sin(angle)
+
+        pp = QPainterPath()
+        pp.moveTo(cx - dx, cy - dy)
+        pp.lineTo(cx + dx, cy + dy)
+        self._split_line_item.setPath(pp)
+        self._split_line_item.setVisible(True)

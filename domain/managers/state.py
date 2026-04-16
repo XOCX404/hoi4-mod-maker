@@ -199,8 +199,15 @@ class StateManager:
                 state = self.create_state(chunk)
                 state.manpower = len(chunk) * 50000
 
-    def build_state_color_map(self, province_map: np.ndarray) -> np.ndarray:
-        """生成 State 颜色图（用于显示）"""
+    def build_state_color_map(
+        self, province_map: np.ndarray,
+        unassigned_highlight: bool = True,
+    ) -> np.ndarray:
+        """生成 State 颜色图（用于显示）。
+
+        unassigned_highlight=True：未分配到 state 的 land province 高亮为**鲜红色**，
+        让用户一眼看到还有哪些省份没分配。
+        """
         # 为每个 State 分配确定性颜色
         rng = np.random.RandomState(123)
         colors = {}
@@ -214,7 +221,14 @@ class StateManager:
         # 构建 LUT: province_id → (R, G, B)
         max_pid = int(province_map.max())
         lut = np.zeros((max_pid + 1, 3), dtype=np.uint8)
-        lut[:, :] = 40  # 未分配=深灰
+        # 未分配：鲜红色（高亮）或深灰（不高亮）
+        if unassigned_highlight:
+            lut[:, :] = (220, 30, 30)  # 鲜红提示"未分配"
+        else:
+            lut[:, :] = 40  # 深灰
+
+        # pid=0 保持为特殊值（用灰色，避免红色淹没海洋）
+        lut[0] = (40, 40, 60)
 
         for pid, sid in self._province_to_state.items():
             if pid <= max_pid and sid in colors:
@@ -225,3 +239,8 @@ class StateManager:
         flat_clipped = np.clip(flat, 0, max_pid)
         rgb = lut[flat_clipped].reshape(province_map.shape[0], province_map.shape[1], 3)
         return rgb
+
+    def count_unassigned_provinces(self, all_land_pids: set[int]) -> int:
+        """返回还没分配到任何 state 的 land province 数量。"""
+        assigned = set(self._province_to_state.keys())
+        return len(all_land_pids - assigned)

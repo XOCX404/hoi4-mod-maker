@@ -60,16 +60,14 @@ class LandPage(QWidget):
         self._land_tool_group = QButtonGroup(self)
         self._land_tool_group.setExclusive(True)
         tools = [("brush", tr("land_tool_brush")), ("eraser", tr("land_tool_eraser")),
-                 ("fill", tr("land_tool_fill")), ("transform", tr("land_tool_transform")),
+                 ("transform", tr("land_tool_transform")),
                  ("pan", tr("land_tool_pan"))]
         for i, (tid, label) in enumerate(tools):
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setProperty("tool_id", tid)
             btn.setStyleSheet(_TOOL_BTN_STYLE)
-            if tid == "fill":
-                btn.setToolTip(tr("land_tool_fill_tip"))
-            elif tid == "transform":
+            if tid == "transform":
                 btn.setToolTip(tr("land_tool_transform_tip"))
             self._land_tool_group.addButton(btn)
             tl.addWidget(btn, i // 3, i % 3)

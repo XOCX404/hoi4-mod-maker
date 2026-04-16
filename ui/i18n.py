@@ -253,11 +253,13 @@ _translations: dict[str, dict[str, str]] = {
     "height_section_ridge": {"zh": "山脉画线", "en": "Draw Mountain Ridge"},
     "height_ridge_hint": {"zh": "在地图上拖拽画出山脉走向，松开鼠标后自动生成山脊和两侧衰减", "en": "Drag on the map to draw a mountain ridge. Heights fall off naturally from the ridge line."},
     "height_btn_ridge": {"zh": "画山脉模式", "en": "Ridge Drawing Mode"},
+    "height_btn_ridge_confirm": {"zh": "确认生成山脉", "en": "Confirm Ridge"},
     "height_label_ridge_peak": {"zh": "山峰高度:", "en": "Peak Height:"},
     "height_label_ridge_falloff": {"zh": "衰减距离:", "en": "Falloff Distance:"},
     "status_ridge_mode_on": {"zh": "山脉画线模式：在地图上拖拽画山脉", "en": "Ridge mode: drag on map to draw mountains"},
     "status_ridge_mode_off": {"zh": "山脉画线模式已关闭", "en": "Ridge drawing mode off"},
     "status_ridge_applied": {"zh": "山脉已生成", "en": "Mountain ridge applied"},
+    "status_ridge_preview": {"zh": "山脉预览中 — 调整参数后点「确认生成山脉」", "en": "Ridge preview — adjust params then click Confirm"},
     "height_hint": {"zh": "① 先画好陆地/海洋② 点「智能生成高度」自动算出山谷起伏③ 不满意可换种子重来，或用画笔微调④ 高度图做好后，切「地形」模式生成地形", "en": "1. Draw land/sea first2. Click Smart Generate for auto heightmap3. Change seed or brush-adjust if needed4. Switch to Terrain mode after"},
     "height_label_mountain": {"zh": "山脉强度:", "en": "Mountain Strength:"},
     "height_label_seed": {"zh": "种子:", "en": "Seed:"},
@@ -303,7 +305,8 @@ _translations: dict[str, dict[str, str]] = {
     "land_btn_hide": {"zh": "隐藏", "en": "Hide"},
     "land_btn_smooth_coast": {"zh": "平滑海岸线", "en": "Smooth Coastline"},
     "land_btn_smooth_coast_tip": {"zh": "用高斯模糊平滑陆海边界，让海岸线更自然（建议在生成省份之前使用）", "en": "Gaussian blur to smooth land/sea boundary for natural coastlines (use before generating provinces)"},
-    "status_coast_smoothed": {"zh": "海岸线已平滑", "en": "Coastline smoothed"},
+    "status_coast_smoothed": {"zh": "海岸线已平滑（全图）", "en": "Coastline smoothed (entire map)"},
+    "status_coast_smoothed_region": {"zh": "海岸线已平滑（选区）", "en": "Coastline smoothed (selection)"},
     "land_btn_quick_init": {"zh": "一键初始化（州+战略区+国家）", "en": "Quick Init (State+Region+Country)"},
     "land_btn_quick_init_tip": {"zh": "自动生成州、战略区域、默认国家，一步到位可导出", "en": "Auto-generate states, strategic regions, and default country for export"},
     "land_btn_show": {"zh": "显示", "en": "Show"},
@@ -372,6 +375,7 @@ _translations: dict[str, dict[str, str]] = {
     "province_hint_click_info": {"zh": "点击省份查看信息", "en": "Click province to view info"},
     "province_hint_default": {"zh": "点击查看省份信息。合并/扩张/切割需先点对应按钮开启", "en": "Click to view province info. Enable merge/expand/split via buttons first"},
     "province_hint_expand": {"zh": "扩张模式：点击省份后拖动扩张", "en": "Expand mode: click province and drag to expand"},
+    "province_hint_split": {"zh": "切割模式：在省份上画一条线，松手沿线切开", "en": "Split mode: draw a line across a province to split it"},
     "province_hint_merge": {"zh": "合并模式：点第一个省份，再点第二个", "en": "Merge mode: click first province, then second"},
     "province_hint_regen": {"zh": "增量生成：点击省份选择区域（多选），然后点「重新生成」", "en": "Regen: click provinces to select (multi), then click Regenerate"},
     "province_info_coastal": {"zh": "沿海", "en": "Coastal"},
@@ -455,6 +459,34 @@ _translations: dict[str, dict[str, str]] = {
     "welcome_import_mod": {"zh": "导入MOD地图", "en": "Import MOD Map"},
     "welcome_recent": {"zh": "最近项目", "en": "Recent Projects"},
     "welcome_no_recent": {"zh": "(无最近项目)", "en": "(No Recent Projects)"},
+
+    # 右侧信息面板
+    "welcome_info_title": {"zh": "关于此工具", "en": "About This Tool"},
+    "welcome_info_desc": {
+        "zh": "从零开始制作完整的 HOI4 全转换 MOD，无需手动编辑任何游戏文件。\n画大陆 → 生成省份 → 地形高度 → 州和国家 → 一键导出可玩 MOD。",
+        "en": "Create complete HOI4 total-conversion mods from scratch — no manual file editing required.\nDraw continents → Generate provinces → Terrain & height → States & countries → One-click export playable MOD.",
+    },
+    "welcome_features_title": {"zh": "功能亮点", "en": "Highlights"},
+    "welcome_features_list": {
+        "zh": "- 圆形画笔 / 填充 / 变换工具\n- 泊松盘 + Lloyd 松弛自动生成省份\n- 智能高度图 & 地形 & 河流生成\n- 州 / 国家 / 战略区全流程管理\n- 5 秒导出 2000+ 文件完整 MOD\n- 中英双语界面",
+        "en": "- Circular brush / fill / transform tools\n- Poisson disk + Lloyd relaxation province gen\n- Smart heightmap & terrain & river generation\n- Full state / country / region workflow\n- 5-second export of 2000+ file complete MOD\n- Chinese / English bilingual UI",
+    },
+    "welcome_changelog_title": {"zh": "更新日志 ({ver})", "en": "Changelog ({ver})"},
+    "welcome_links": {
+        "zh": '<a href="https://github.com/AmonStreeling/hoi4-mod-maker" style="color:#6c6cf0;">GitHub</a>'
+              ' &nbsp;|&nbsp; '
+              '<a href="https://github.com/AmonStreeling/hoi4-mod-maker/issues" style="color:#6c6cf0;">反馈 / Issues</a>',
+        "en": '<a href="https://github.com/AmonStreeling/hoi4-mod-maker" style="color:#6c6cf0;">GitHub</a>'
+              ' &nbsp;|&nbsp; '
+              '<a href="https://github.com/AmonStreeling/hoi4-mod-maker/issues" style="color:#6c6cf0;">Feedback / Issues</a>',
+    },
+    "welcome_community_title": {"zh": "社区支持", "en": "Community"},
+    "welcome_community": {
+        "zh": '工具测试群: <b>1077283666</b><br>'
+              '友宣群 图书馆: <b>378525932</b><br>'
+              'Discord: <a href="https://discord.gg/njHjBf2ADG" style="color:#6c6cf0;">discord.gg/njHjBf2ADG</a>',
+        "en": 'Discord: <a href="https://discord.gg/njHjBf2ADG" style="color:#6c6cf0;">discord.gg/njHjBf2ADG</a>',
+    },
 
     # === 菜单补充 ===
     "action_load_vanilla_ref": {"zh": "加载原版地图参考", "en": "Load Vanilla Map Reference"},
@@ -554,6 +586,29 @@ _translations: dict[str, dict[str, str]] = {
 
     # === 单位词 ===
     "unit_provinces": {"zh": "省", "en": "prov."},
+
+    # === 导航栏 (7 模式) ===
+    "nav_map_draw": {"zh": "画地图", "en": "Draw Map"},
+    "nav_province": {"zh": "省份", "en": "Provinces"},
+    "nav_terrain": {"zh": "地形", "en": "Terrain"},
+    "nav_river": {"zh": "河流", "en": "Rivers"},
+    "nav_region": {"zh": "国家与区域", "en": "Countries"},
+    "nav_logistics": {"zh": "后勤", "en": "Logistics"},
+    "nav_settings": {"zh": "设置", "en": "Settings"},
+
+    # 子标签页
+    "tab_land": {"zh": "陆海", "en": "Land"},
+    "tab_density": {"zh": "密度", "en": "Density"},
+    "tab_height": {"zh": "高度", "en": "Height"},
+    "tab_terrain": {"zh": "地形（视觉）", "en": "Terrain (Visual)"},
+    "tab_province_terrain": {"zh": "地形（属性）", "en": "Terrain (Attribute)"},
+    "tab_state": {"zh": "州", "en": "State"},
+    "tab_country": {"zh": "国家", "en": "Country"},
+    "tab_continent": {"zh": "大洲", "en": "Continent"},
+    "tab_strategic_region": {"zh": "战略区", "en": "Strategic Region"},
+    "tab_logistics": {"zh": "后勤", "en": "Logistics"},
+    "tab_colormap": {"zh": "总览贴图", "en": "Colormap"},
+    "tab_default_map": {"zh": "地图配置", "en": "Map Config"},
 
     # === 新手引导对话框 ===
     "guide_title": {"zh": "新手引导", "en": "Getting Started"},

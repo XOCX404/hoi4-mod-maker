@@ -37,6 +37,8 @@ a = Analysis(
         'features.content.namelist',
         'features.content.flags',
         'features.content.ideas',
+        'features.map.density',
+        'features.map.density.page',
         'features.map.land.page',
         'features.map.province.page',
         'features.map.terrain.page',

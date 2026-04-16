@@ -138,9 +138,12 @@ def detect_x_crossings(province_map: np.ndarray) -> list[tuple[int, int]]:
         (tl_w != tr_w) & (tl_w != bl_w) & (tl_w != br_w)
         & (tr_w != bl_w) & (tr_w != br_w) & (bl_w != br_w)
     )
-    ys_w = np.where(diff_w)[0]
-    for y in ys_w:
-        positions.append((int(y), MAP_WIDTH - 1))
+    # 只在全图尺寸时检测 wrap 边缘（子数组不做 wrap）
+    h, w = province_map.shape
+    if w == MAP_WIDTH:
+        ys_w = np.where(diff_w)[0]
+        for y in ys_w:
+            positions.append((int(y), w - 1))
 
     return positions
 
@@ -151,11 +154,12 @@ def fix_x_crossings(province_map: np.ndarray) -> int:
 
     返回修复数量。
     """
+    _h, w = province_map.shape
     fixed = 0
     positions = detect_x_crossings(province_map)
     for y, x in positions:
-        # wrap 边缘特殊处理：x == MAP_WIDTH-1 时右边像素是 [y+1, 0]
-        if x == MAP_WIDTH - 1:
+        # wrap 边缘特殊处理：x == 最右列时右边像素是 [y+1, 0]
+        if x == w - 1:
             province_map[y + 1, 0] = province_map[y, x]
         else:
             province_map[y + 1, x + 1] = province_map[y, x]

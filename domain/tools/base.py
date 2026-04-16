@@ -134,15 +134,13 @@ class Tool:
         if self.cleanup_level == CleanupLevel.NONE:
             return
         if self.cleanup_level == CleanupLevel.FULL:
-            from domain.generators.province import (
-                _fix_non_contiguous_fast, compact_province_ids,
-            )
+            from domain.generators.province import _fix_non_contiguous_fast
             from domain.validators.province import fix_x_crossings
             for _ in range(5):
                 if fix_x_crossings(ctx.map_data.province_map) == 0:
                     break
             _fix_non_contiguous_fast(ctx.map_data.province_map)
-            compact_province_ids(ctx.map_data.province_map)
+            # 不压实 ID — 保留空洞供切割填补，导出时自动处理
         elif self.cleanup_level == CleanupLevel.FAST:
             # 仅在 dirty_bbox 内修 X-crossing
             from domain.validators.province import fix_x_crossings

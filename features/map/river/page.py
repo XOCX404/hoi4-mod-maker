@@ -1,27 +1,26 @@
-"""river feature 页面 — 独立 QWidget, 不依赖 ToolPanel."""
+"""河流编辑页面 — 新版 UI：🪄 一键生成 + ✏️ 手动 3 步引导。"""
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
+    QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QSlider, QLabel, QButtonGroup, QGridLayout,
 )
 
 from domain.managers.river import (
     RIVER_MARKER_TYPES, RIVER_WIDTH_TYPES, RIVER_PALETTE,
+    RIVER_WIDTH_4,  # 默认宽度：中河 (index 6)
 )
 
 from ui.styles import (
     make_section as _make_section,
-    _DIM, _SECTION_STYLE, _LABEL_STYLE, _DIM_LABEL_STYLE, _SLIDER_STYLE,
-    _TOOL_BTN_STYLE, _SECONDARY_BTN_STYLE,
+    _DIM, _TEXT, _ACCENT, _SECTION_STYLE, _LABEL_STYLE, _DIM_LABEL_STYLE,
+    _SLIDER_STYLE, _TOOL_BTN_STYLE, _SECONDARY_BTN_STYLE, _PRIMARY_BTN_STYLE,
 )
 from ui.i18n import tr
 
 
-
-
 class RiverPage(QWidget):
-    """河流编辑页面."""
+    """河流编辑页面 — 新版布局（自动 + 手动 3 步）。"""
 
     # 输出信号
     tool_changed = pyqtSignal(str)
@@ -36,21 +35,120 @@ class RiverPage(QWidget):
 
     def _init_ui(self) -> None:
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(8, 8, 8, 8)
+        lay.setContentsMargins(10, 10, 10, 10)
         lay.setSpacing(10)
 
-        # 提示
-        hint = QLabel(tr("river_hint"))
-        hint.setStyleSheet(f"color: {_DIM}; font-size: 12px; padding: 8px;")
-        hint.setWordWrap(True)
-        lay.addWidget(hint)
+        # ═══════════════════ 🪄 自动生成（主推荐）═══════════════════
+        auto_box = _make_section("🪄 一键生成河流（推荐）")
+        auto_layout = auto_box.layout()
 
-        # 工具按钮
-        tools_box = _make_section(tr("river_section_tools"))
+        auto_btn = QPushButton("🌊 自动生成河流")
+        auto_btn.setMinimumHeight(44)
+        auto_btn.setStyleSheet(
+            f"QPushButton {{"
+            f"  background: {_ACCENT};"
+            f"  color: white;"
+            f"  border: none;"
+            f"  border-radius: 6px;"
+            f"  font-size: 15px;"
+            f"  font-weight: 600;"
+            f"  padding: 8px;"
+            f"}}"
+            f"QPushButton:hover {{"
+            f"  background: #9090ff;"
+            f"}}"
+        )
+        auto_btn.setToolTip("基于高度图自动生成合理河流网络，几秒完成全图")
+        auto_btn.clicked.connect(self.auto_river_requested.emit)
+        auto_layout.addWidget(auto_btn)
+
+        auto_tip = QLabel("根据高度图自动画河，不用手动。生成后可手动改/擦除。")
+        auto_tip.setStyleSheet(f"color: {_DIM}; font-size: 12px; padding: 4px 2px;")
+        auto_tip.setWordWrap(True)
+        auto_layout.addWidget(auto_tip)
+
+        lay.addWidget(auto_box)
+
+        # ═══════════════════ ✏️ 手动画河流 ═══════════════════
+        manual_box = _make_section("✏️ 手动画河流（3 步）")
+        manual_layout = manual_box.layout()
+
+        # ── Step 1：选宽度 ──
+        step1 = QLabel("<b>步骤 1：</b>选河流宽度")
+        step1.setStyleSheet(f"color: {_TEXT}; font-size: 14px; padding: 2px;")
+        step1.setTextFormat(Qt.TextFormat.RichText)
+        manual_layout.addWidget(step1)
+
+        wgrid = QGridLayout()
+        wgrid.setSpacing(4)
+        self._width_group = QButtonGroup(self)
+        self._width_group.setExclusive(True)
+        for i, (idx, name) in enumerate(RIVER_WIDTH_TYPES):
+            r, g, b = RIVER_PALETTE[idx]
+            btn = _make_river_btn(name, r, g, b)
+            btn.setCheckable(True)
+            btn.setProperty("river_idx", idx)
+            self._width_group.addButton(btn, idx)
+            btn.clicked.connect(lambda _, ix=idx: self.river_type_changed.emit(ix))
+            wgrid.addWidget(btn, i // 4, i % 4)
+        manual_layout.addLayout(wgrid)
+
+        # 默认选"中河"
+        default_btn = self._width_group.button(RIVER_WIDTH_4)
+        if default_btn:
+            default_btn.setChecked(True)
+
+        # ── Step 2：画河流 ──
+        step2 = QLabel("<b>步骤 2：</b>在地图上画河")
+        step2.setStyleSheet(f"color: {_TEXT}; font-size: 14px; padding: 6px 2px 2px 2px;")
+        step2.setTextFormat(Qt.TextFormat.RichText)
+        manual_layout.addWidget(step2)
+
+        step2_hint = QLabel(
+            "从山上某点按住鼠标 → 拖到海边 → 松手\n"
+            "⚠️ 只能走上下左右，不能斜线"
+        )
+        step2_hint.setStyleSheet(f"color: {_DIM}; font-size: 12px; padding: 2px;")
+        step2_hint.setWordWrap(True)
+        manual_layout.addWidget(step2_hint)
+
+        # ── Step 3：加标记 ──
+        step3 = QLabel("<b>步骤 3：</b>加起点/终点标记")
+        step3.setStyleSheet(f"color: {_TEXT}; font-size: 14px; padding: 6px 2px 2px 2px;")
+        step3.setTextFormat(Qt.TextFormat.RichText)
+        manual_layout.addWidget(step3)
+
+        mgrid = QGridLayout()
+        mgrid.setSpacing(4)
+        self._marker_group = QButtonGroup(self)
+        self._marker_group.setExclusive(True)
+        for i, (idx, name) in enumerate(RIVER_MARKER_TYPES):
+            r, g, b = RIVER_PALETTE[idx]
+            btn = _make_river_btn(name, r, g, b)
+            btn.setCheckable(True)
+            btn.setProperty("river_idx", idx)
+            self._marker_group.addButton(btn, idx)
+            btn.clicked.connect(lambda _, ix=idx: self.river_type_changed.emit(ix))
+            mgrid.addWidget(btn, 0, i)
+        manual_layout.addLayout(mgrid)
+
+        step3_hint = QLabel(
+            "每条河至少 1 个源头（绿）\n"
+            "入海口（黄）放河流末端\n"
+            "汇入点（红）= 两条河合并处"
+        )
+        step3_hint.setStyleSheet(f"color: {_DIM}; font-size: 12px; padding: 2px;")
+        step3_hint.setWordWrap(True)
+        manual_layout.addWidget(step3_hint)
+
+        lay.addWidget(manual_box)
+
+        # ═══════════════════ 工具：橡皮/平移 ═══════════════════
+        tools_box = _make_section("工具")
         tl = QHBoxLayout()
         self._river_tool_group = QButtonGroup(self)
         self._river_tool_group.setExclusive(True)
-        for tid, label in [("brush", tr("river_tool_brush")), ("eraser", tr("river_tool_eraser")), ("pan", tr("river_tool_pan"))]:
+        for tid, label in [("brush", "画笔"), ("eraser", "橡皮"), ("pan", "平移")]:
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setProperty("tool_id", tid)
@@ -64,80 +162,54 @@ class RiverPage(QWidget):
             lambda b: self.tool_changed.emit(b.property("tool_id"))
         )
         tools_box.layout().addLayout(tl)
-        lay.addWidget(tools_box)
 
-        # 画笔大小
-        brush_box = _make_section(tr("river_section_brush_size"))
-        self._river_brush_label = QLabel("3px")
+        # 橡皮大小（画笔默认 1px 不可调 — HOI4 河流必须 1 像素宽）
+        size_row = QHBoxLayout()
+        size_lbl = QLabel("橡皮范围:")
+        size_lbl.setStyleSheet(_LABEL_STYLE)
+        self._river_brush_label = QLabel("1px")
         self._river_brush_label.setStyleSheet(_DIM_LABEL_STYLE)
-        row = QHBoxLayout()
-        lbl = QLabel(tr("river_label_size"))
-        lbl.setStyleSheet(_LABEL_STYLE)
-        row.addWidget(lbl)
-        row.addStretch()
-        row.addWidget(self._river_brush_label)
-        brush_box.layout().addLayout(row)
+        size_row.addWidget(size_lbl)
+        size_row.addStretch()
+        size_row.addWidget(self._river_brush_label)
+        tools_box.layout().addLayout(size_row)
 
         self._river_brush_slider = QSlider(Qt.Orientation.Horizontal)
         self._river_brush_slider.setRange(1, 20)
-        self._river_brush_slider.setValue(3)
+        self._river_brush_slider.setValue(1)  # 默认 1px（画笔也按 1px 画，只影响橡皮）
         self._river_brush_slider.setStyleSheet(_SLIDER_STYLE)
         self._river_brush_slider.valueChanged.connect(self._on_river_brush)
-        brush_box.layout().addWidget(self._river_brush_slider)
-        lay.addWidget(brush_box)
+        tools_box.layout().addWidget(self._river_brush_slider)
 
-        # 标记类型 (单像素)
-        marker_box = _make_section(tr("river_section_markers"))
-        mgrid = QGridLayout()
-        mgrid.setSpacing(4)
+        slider_tip = QLabel("💡 河流必须 1px 宽（HOI4 规则），滑块只影响橡皮擦范围")
+        slider_tip.setStyleSheet(f"color: {_DIM}; font-size: 11px; padding: 2px;")
+        slider_tip.setWordWrap(True)
+        tools_box.layout().addWidget(slider_tip)
 
-        for i, (idx, name) in enumerate(RIVER_MARKER_TYPES):
-            r, g, b = RIVER_PALETTE[idx]
-            btn = _make_river_btn(name, r, g, b)
-            btn.clicked.connect(lambda _, ix=idx: self.river_type_changed.emit(ix))
-            mgrid.addWidget(btn, 0, i)
-
-        marker_box.layout().addLayout(mgrid)
-        lay.addWidget(marker_box)
-
-        # 河流宽度画笔
-        width_box = _make_section(tr("river_section_width"))
-        wgrid = QGridLayout()
-        wgrid.setSpacing(4)
-
-        for i, (idx, name) in enumerate(RIVER_WIDTH_TYPES):
-            r, g, b = RIVER_PALETTE[idx]
-            btn = _make_river_btn(name, r, g, b)
-            btn.clicked.connect(lambda _, ix=idx: self.river_type_changed.emit(ix))
-            wgrid.addWidget(btn, i // 3, i % 3)
-
-        width_box.layout().addLayout(wgrid)
-        lay.addWidget(width_box)
-
-        # 自动生成
-        from ui.styles import _PRIMARY_BTN_STYLE
-        auto_btn = QPushButton(tr("river_btn_auto"))
-        auto_btn.setStyleSheet(_PRIMARY_BTN_STYLE)
-        auto_btn.setToolTip(tr("river_btn_auto_tip"))
-        auto_btn.clicked.connect(self.auto_river_requested.emit)
-        lay.addWidget(auto_btn)
+        lay.addWidget(tools_box)
 
         # 验证按钮
-        validate_btn = QPushButton(tr("river_btn_validate"))
+        validate_btn = QPushButton("✓ 验证河流是否合法")
         validate_btn.setStyleSheet(_SECONDARY_BTN_STYLE)
+        validate_btn.setToolTip("检查是否有对角线像素、缺失源头等问题")
         validate_btn.clicked.connect(self.validate_river_requested.emit)
         lay.addWidget(validate_btn)
 
         lay.addStretch()
 
-    # ── 槽函数 ──
     def _on_river_brush(self, size: int) -> None:
         self._river_brush_label.setText(f"{size}px")
         self.brush_size_changed.emit(size)
 
+    def showEvent(self, event):
+        """每次切到河流 tab 都自动把画笔重置为 1px（HOI4 河流必须 1 像素宽）。"""
+        super().showEvent(event)
+        if self._river_brush_slider.value() != 1:
+            self._river_brush_slider.setValue(1)
+
 
 def _make_river_btn(name: str, r: int, g: int, b: int) -> QPushButton:
-    """创建河流类型按钮."""
+    """创建河流类型按钮（选中有白框）"""
     btn = QPushButton(name)
     brightness = r * 0.299 + g * 0.587 + b * 0.114
     fg = "#000000" if brightness > 140 else "#ffffff"
@@ -147,13 +219,17 @@ def _make_river_btn(name: str, r: int, g: int, b: int) -> QPushButton:
             border: 2px solid transparent;
             color: {fg};
             padding: 6px 2px;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
             border-radius: 4px;
             min-width: 55px;
+            min-height: 28px;
         }}
         QPushButton:hover {{
-            border-color: white;
+            border-color: rgba(255, 255, 255, 0.5);
+        }}
+        QPushButton:checked {{
+            border: 2px solid white;
         }}
     """)
     return btn

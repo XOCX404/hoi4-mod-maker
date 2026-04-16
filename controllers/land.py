@@ -112,17 +112,20 @@ class LandController(BaseController):
     # ── 普通画笔 ──
 
     def _apply_brush(self, x: int, y: int) -> None:
-        """在 (x, y) 处应用画笔/橡皮。"""
+        """在 (x, y) 处应用圆形画笔/橡皮。"""
         from data.constants import TILE_SEA
         map_data = self.project.map_data
         tile_map = map_data.tile_map
         h, w = tile_map.shape
         r = self.brush_size // 2
+        r_sq = r * r
 
         tile_value = self.current_tile_type if self.current_tool == "brush" else TILE_SEA
 
         for dy in range(-r, r + 1):
             for dx in range(-r, r + 1):
+                if r >= 2 and dy * dy + dx * dx > r_sq:
+                    continue
                 ny, nx = y + dy, x + dx
                 if 0 <= ny < h and 0 <= nx < w:
                     if int(tile_map[ny, nx]) != tile_value:

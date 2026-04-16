@@ -23,6 +23,7 @@ from controllers.app_controller import ApplicationController
 from controllers.land import LandController
 from controllers.province import ProvinceController
 from controllers.terrain import TerrainController
+from controllers.provincial_terrain import ProvincialTerrainController
 from controllers.height import HeightController
 from controllers.river import RiverController
 from controllers.state import StateController
@@ -71,6 +72,7 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
             "land": LandController(self._project, self._cmd_history),
             "province": ProvinceController(self._project, self._cmd_history),
             "terrain": TerrainController(self._project, self._cmd_history),
+            "province_terrain": ProvincialTerrainController(self._project, self._cmd_history),
             "height": HeightController(self._project, self._cmd_history),
             "river": RiverController(self._project, self._cmd_history),
             "state": StateController(self._project, self._cmd_history),
@@ -113,6 +115,9 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
 
         # 让 canvas 和 project 共享同一个 MapData 实例
         self._canvas.set_map_data(self._project.map_data)
+        # 挂管理器到 canvas，让后勤 overlay 能读到数据
+        self._canvas._supply_mgr = self._project.supply_mgr
+        self._canvas._railway_mgr = self._project.railway_mgr
 
         # 初始模式
         self._on_mode_changed("land")
@@ -237,6 +242,13 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         tp.terrain_index_changed.connect(cv.set_terrain_index)
         tp.terrain_brush_mode_changed.connect(cv.set_terrain_brush_mode)
         tp.height_value_changed.connect(cv.set_height_value)
+        # 属性地形选择 → 属性地形 controller
+        tp.province_terrain_type_changed.connect(
+            self._controllers["province_terrain"].set_type
+        )
+        tp.province_terrain_assign_mode_changed.connect(
+            self._controllers["province_terrain"].set_assign_mode
+        )
 
         # 参考图控件 → 画布
         tp._vanilla_ref_opacity_slider.valueChanged.connect(
@@ -283,14 +295,22 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
             lambda v: setattr(self, '_ridge_peak', v))
         tp.ridge_falloff_changed.connect(
             lambda v: setattr(self, '_ridge_falloff', v))
+        cv.ridge_drawn.connect(self._on_ridge_drawn)
+        tp.ridge_preview_requested.connect(self._on_ridge_preview)
+        tp.ridge_confirmed.connect(self._on_ridge_confirm)
+        tp.ridge_cancelled.connect(self._on_ridge_cancel)
+        cv.province_gaps_detected.connect(
+            lambda gaps: self._tool_panel.update_province_gaps(gaps)
+        )
         tp.export_requested.connect(self._on_export_mod)
 
         # Province 信号 → controller
-        tp.split_province_requested.connect(self._on_split_province)
+        tp.split_mode_toggled.connect(self._on_split_toggled)
         tp.lasso_province_toggled.connect(self._on_lasso_toggled)
         tp.merge_mode_toggled.connect(self._on_merge_toggled)
         tp.regen_mode_toggled.connect(self._on_regen_mode_toggled)
         tp.regen_execute_requested.connect(self._on_regen_execute)
+        cv.split_line_drawn.connect(self._on_split_line_drawn)
 
         # State 信号 → controller
         tp.auto_states_requested.connect(
@@ -444,6 +464,20 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
     def _on_mode_changed(self, mode: str) -> None:
         mode_name = self._app.on_mode_changed(mode)
         self._status_mode.setText(tr("status_mode").format(mode=mode_name))
+        # 进入省份模式时检测 ID 空洞
+        if mode == "province":
+            self._check_province_gaps()
+
+    def _check_province_gaps(self) -> None:
+        """扫描省份 ID 空洞并更新提示。"""
+        import numpy as np
+        pm = self._project.map_data.province_map
+        if pm is None or int(pm.max()) == 0:
+            return
+        max_id = int(pm.max())
+        existing = set(np.unique(pm)) - {0}
+        gap_ids = sorted(set(range(1, max_id + 1)) - existing)
+        self._tool_panel.update_province_gaps(gap_ids)
 
     # ═══════════════════════ 省份点击路由 ═══════════════════
 
@@ -465,6 +499,8 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
             else:
                 self._batch_state_pids.append(pid)
             self._status_info.setText(tr("status_selected_provinces_state").format(n=len(self._batch_state_pids)))
+            # 画布高亮已选省份
+            self._canvas.set_batch_selection_pids(self._batch_state_pids)
             return
 
         # 选州创建战略区域模式
@@ -521,28 +557,41 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
 
     # ═══════════════════════ Province 操作 ═══════════════════
 
-    def _on_split_province(self) -> None:
+    def _on_split_toggled(self, on: bool) -> None:
+        self._canvas._split_mode = on
+        if on:
+            self._status_info.setText(tr("province_hint_split"))
+            # 如果已有选中省份，直接显示切割线
+            pid = self._canvas._selected_province_id
+            if pid > 0:
+                self._canvas._init_split_preview(pid)
+        else:
+            self._canvas._split_ready = False
+            self._canvas._split_line_item.setVisible(False)
+            self._status_info.setText(tr("status_view_mode"))
+
+    def _on_split_line_drawn(self, pid: int, path: list) -> None:
+        """画线切割省份。"""
         ctrl: ProvinceController = self._controllers["province"]
-        pid = self._canvas._selected_province_id
         ctrl.selected_province_id = pid
-        ok = ctrl.split_selected()
+        ok = ctrl.split_by_line(pid, path)
         if ok:
             self._update_province_count()
+            # 刷新边界和高亮
+            self._canvas._border_cache = None
+            if hasattr(self._canvas, '_border_base_pixmap'):
+                self._canvas._border_base_pixmap = None
+            self._canvas._full_render()
+            self._canvas._render_province_overlay()
+            # 保持选中原省份，自动进入下一次切割预览
+            if self._canvas._split_mode:
+                self._canvas._init_split_preview(pid)
 
     def _on_merge_toggled(self, on: bool) -> None:
-        if on:
-            QMessageBox.information(
-                self, tr("province_btn_merge"),
-                tr("dlg_merge_hint"),
-            )
         self._controllers["province"].set_merge_mode(on)
 
     def _on_lasso_toggled(self, on: bool) -> None:
         if on:
-            QMessageBox.information(
-                self, tr("province_btn_expand"),
-                tr("dlg_expand_hint"),
-            )
             self._controllers["province"].set_merge_mode(False)
             from domain.tools import lasso_province  # noqa: F401
             self._canvas.set_framework_tool(
@@ -589,6 +638,8 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         """开关批量选省份建州模式。"""
         self._batch_state_mode = on
         self._batch_state_pids = []
+        # 关闭模式时清除高亮
+        self._canvas.set_batch_selection_pids([])
         if on:
             self._status_info.setText(tr("status_batch_state_mode"))
         else:
@@ -603,9 +654,10 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         ctrl = self._controllers["state"]
         n = len(pids)
         new_sid = ctrl.create_state_from_provinces(pids)
-        # 重置模式
+        # 重置模式 + 清除高亮
         self._batch_state_mode = False
         self._batch_state_pids = []
+        self._canvas.set_batch_selection_pids([])
         if new_sid > 0:
             self._canvas.refresh_display()
             QMessageBox.information(self, tr("dlg_batch_state_title"), tr("dlg_batch_state_done").format(sid=new_sid, n=n))

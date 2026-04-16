@@ -170,13 +170,59 @@ class TerrainController(BaseController):
             self._stroke_changes[(y0 + int(cy), x0 + int(cx))] = self.current_terrain_index
 
     def _commit_stroke(self) -> None:
-        """提交地形笔触。"""
+        """提交地形笔触 + 单向同步：被涂的 province 多数地形 → provincial_terrain dict。
+
+        画笔涂完一笔后，统计每个被涂的 province 在 terrain_map 上的多数 graphical
+        terrain → 推断 provincial type → 更新 dict。这样视觉是主，属性自动跟。
+        """
         self._is_painting = False
-        if self._stroke_changes:
-            cmd = PaintTerrainCommand(
-                self.project.map_data, self._stroke_changes,
-            )
-            self.history.execute(cmd)
-            self._stroke_changes = {}
-            self.project.mark_dirty()
-            self._emit_render(full=True)
+        if not self._stroke_changes:
+            return
+
+        # 算被涂的每个 province 多数地形 → provincial_terrain
+        from data.terrain_types import PALETTE_TO_TYPE
+        from collections import Counter
+
+        map_data = self.project.map_data
+        province_map = map_data.province_map
+        terrain_map = map_data.terrain_map
+
+        # 收集被涂的所有 province 像素
+        province_changes: dict[int, Counter] = {}
+        for (y, x), new_terr_idx in self._stroke_changes.items():
+            pid = int(province_map[y, x])
+            if pid <= 0:
+                continue
+            if pid not in province_changes:
+                province_changes[pid] = Counter()
+            province_changes[pid][new_terr_idx] += 1
+
+        # 对每个被涂的 province，结合"已存在 + 新涂"算多数地形
+        prov_terrain_changes: dict[int, str] = {}
+        for pid, painted_counter in province_changes.items():
+            # 全省扫描一次（涂完后的状态）
+            mask = province_map == pid
+            terr_in_prov = terrain_map[mask]
+            # 加上即将写入的 stroke_changes（terrain_map 还没更新）
+            for (y, x), new_idx in self._stroke_changes.items():
+                if int(province_map[y, x]) == pid:
+                    # 旧值在 terr_in_prov 里，但即将被覆盖，简化：用 painted_counter 主导
+                    pass
+            # 直接用：如果用户涂了某 province ≥ 30% 像素，就用涂的多数；否则保持旧
+            painted_total = sum(painted_counter.values())
+            prov_total = int(mask.sum())
+            if prov_total > 0 and painted_total / prov_total >= 0.3:
+                # 涂了足够多 → 用涂的多数地形
+                top_idx = painted_counter.most_common(1)[0][0]
+                ptype = PALETTE_TO_TYPE.get(int(top_idx))
+                if ptype:
+                    prov_terrain_changes[pid] = ptype
+
+        cmd = PaintTerrainCommand(
+            map_data, self._stroke_changes,
+            provincial_terrain_changes=prov_terrain_changes if prov_terrain_changes else None,
+        )
+        self.history.execute(cmd)
+        self._stroke_changes = {}
+        self.project.mark_dirty()
+        self._emit_render(full=True)

@@ -87,24 +87,8 @@ class LassoProvinceTool(Tool):
         ctx.selected_province_id = 0
 
     def run_cleanup(self, ctx: ToolContext) -> None:
-        """覆盖默认清理：在 FAST 清理之外，额外做"压实 + 同步引用"。
-        防止扩张吃光邻居导致 ID gap。"""
-        # 先做基类的 FAST 清理（局部 X-crossing 修复）
+        """只做局部 X-crossing 修复，不压实 ID（保留空洞供切割填补）。"""
         super().run_cleanup(ctx)
-        # 然后压实 + 同步引用
-        sel = ctx.state.get("pid", 0)
-        mapping = ctx.map_data.compact_with_references(
-            state_mgr=ctx.state_mgr,
-            country_mgr=ctx.country_mgr,
-        )
-        # 选中的省份可能被改了 ID，跟踪
-        if sel in mapping:
-            new_sel = mapping[sel]
-            ctx.state["pid"] = new_sel
-            ctx.selected_province_id = new_sel
-            # 重算 allowed_mask（可能因为压实而需要更新）
-            if ctx.state.get("active") and new_sel > 0:
-                ctx.state["allowed_mask"] = ctx.map_data.get_neighborhood_mask(new_sel)
 
     # ────── 笔刷 ──────
 
