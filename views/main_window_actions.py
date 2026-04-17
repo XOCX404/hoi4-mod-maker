@@ -166,6 +166,9 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
             "province_map_regenerated", incremental=was_incremental,
         )
 
+        # 强制刷新画布（增量生成后地图必须更新显示）
+        self._canvas.refresh_display()
+
         # 增量生成后：新省份自动加入最近的 state/战略区
         if was_incremental:
             assigned = self._auto_assign_new_provinces(province_map)
