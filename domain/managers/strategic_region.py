@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
+from scipy.ndimage import label as _ndimage_label
 
 
 WeatherPreset = Literal["polar", "cold", "temperate", "tropical", "desert"]
@@ -103,6 +104,34 @@ PRESET_LABELS = {
     "polar": "极地", "cold": "寒带", "temperate": "温带",
     "tropical": "热带", "desert": "沙漠",
 }
+
+
+def _split_connected_sea(province_map: np.ndarray, sea_pids: set[int]) -> list[list[int]]:
+    """把海洋省份按连通性分组。用 scipy 连通分量，全向量化不逐省份扫描。"""
+    sea_mask = np.isin(province_map, list(sea_pids))
+    labeled, num_features = _ndimage_label(sea_mask)
+    if num_features == 0:
+        return []
+
+    # 只看海洋像素：取每个像素的 (province_id, component_id)
+    sea_pixels = sea_mask.ravel()
+    flat_pm = province_map.ravel()[sea_pixels]
+    flat_lb = labeled.ravel()[sea_pixels]
+
+    # 每个省份取第一个出现的 component_id（同一省份所有像素在同一连通分量）
+    pid_to_comp: dict[int, int] = {}
+    for i in range(len(flat_pm)):
+        pid = int(flat_pm[i])
+        if pid not in pid_to_comp:
+            pid_to_comp[pid] = int(flat_lb[i])
+
+    # 按 component 分组
+    groups: dict[int, list[int]] = {}
+    for pid, comp in pid_to_comp.items():
+        if comp > 0:
+            groups.setdefault(comp, []).append(pid)
+
+    return [sorted(pids) for pids in groups.values() if pids]
 
 
 @dataclass
@@ -205,7 +234,7 @@ class StrategicRegionManager:
                 r.province_ids = list(provs)
                 assigned.update(provs)
 
-            # 剩余省份 (海/湖/孤儿) 按网格
+            # 剩余省份 (海/湖/孤儿) — 先按网格粗分，再按连通性细分
             cell_h = MAP_HEIGHT / max(1, grid_rows)
             cell_w = MAP_WIDTH / max(1, grid_cols)
             sea_buckets: dict[int, list[int]] = {}
@@ -218,9 +247,13 @@ class StrategicRegionManager:
                 col = min(int(cx / cell_w), grid_cols - 1)
                 key = row * grid_cols + col
                 sea_buckets.setdefault(key, []).append(pid)
+            # 每个网格格子再按连通性拆分，防止被陆地隔断
             for provs in sea_buckets.values():
-                r = self.create_region()
-                r.province_ids = list(provs)
+                sub_groups = _split_connected_sea(province_map, set(provs))
+                for group in sub_groups:
+                    r = self.create_region()
+                    r.province_ids = list(group)
+                    r.naval_terrain = "ocean"
         else:
             # 纯网格
             cell_h = MAP_HEIGHT / grid_rows

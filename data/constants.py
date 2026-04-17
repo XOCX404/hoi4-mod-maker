@@ -187,7 +187,6 @@ REPLACE_PATHS = [
     # 每 tick 刷几万行错误 → 走时间崩溃 (LastRead=client_ping).
     # replace 后导出器必须同时拷贝 vanilla 的 decisions/categories/ 目录,
     # 否则加载时找不到 decision category 定义 → 加载崩溃.
-    # --- raids / decisions / strategic_locations ---
     "common/raids",
     "common/decisions",
     "common/strategic_locations",

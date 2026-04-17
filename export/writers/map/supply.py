@@ -23,20 +23,16 @@ def write_supply_nodes(states, province_map, output_dir):
 
 
 def write_railways(states, province_map, output_dir):
+    """fallback：没有用户铁路数据时，写最小占位。"""
     d = os.path.join(output_dir, "map")
     os.makedirs(d, exist_ok=True)
-    nodes = [provs[0] for sid, provs in states.items() if provs]
+    fallback_pid = 1
+    for sid, provs in states.items():
+        if provs:
+            fallback_pid = provs[0]
+            break
     with open(os.path.join(d, "railways.txt"), "w") as f:
-        if len(nodes) >= 2:
-            # 取部分节点连铁路
-            rail_nodes = nodes[::max(1, len(nodes) // 20)]
-            for i in range(len(rail_nodes) - 1):
-                f.write(f"1 2 {rail_nodes[i]} {rail_nodes[i+1]}\n")
-        elif nodes:
-            f.write(f"1 1 {nodes[0]}\n")
-        else:
-            # 文件不能为空也不能写注释，写占位铁路
-            f.write("1 1 1\n")
+        f.write(f"1 2 {fallback_pid} {fallback_pid}\n")
 
 
 def write_supply_areas(states, output_dir, states_per_area: int = 15):
