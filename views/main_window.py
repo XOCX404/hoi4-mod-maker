@@ -841,12 +841,15 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         self._project.country_mgr.clear()
         self._project.continent_mgr.clear()
         self._project.strategic_region_mgr.clear()
+        self._project.railway_mgr.clear()
+        self._project.supply_mgr.clear()
+        self._project.adjacency_mgr.clear()
 
         # 保留导入的美术资产
         self._project.assets = dict(result.get("assets", {}))
         self._project.dirty_assets = set()
 
-        # 填充导入的 states/strategic_regions/countries
+        # 填充导入的 states/strategic_regions/countries/railways/supply
         from views.main_window_file_ops import _populate_imported_data
         _populate_imported_data(self._project, result)
         self._project._dirty = False
@@ -860,6 +863,11 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         self._show_editor()
         self._canvas.refresh_display()
         self._update_province_count()
+        # 刷新着色（不然切到 state/country 模式看不到颜色）
+        self._app._refresh_state_colors()
+        self._app._refresh_country_colors()
+        self._app._refresh_country_list()
+        self._app._refresh_state_list()
         self._project.mark_dirty()
 
         progress.close()
