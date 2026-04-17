@@ -67,6 +67,7 @@ class ApplicationController:
         bus.subscribe("country_changed", self._on_country_changed)
         bus.subscribe("vp_changed", self._on_vp_changed)
         bus.subscribe("province_map_regenerated", self._on_province_regen)
+        bus.subscribe("clear_batch_selection", lambda e: self._canvas.set_batch_selection_pids([]))
         bus.subscribe("railway_changed", self._on_railway_changed)
         bus.subscribe("province_gaps_changed", self._on_province_gaps)
 
@@ -352,6 +353,10 @@ class ApplicationController:
                 self._panel.update_state_info(
                     state.name, state.manpower, state.category
                 )
+                # 高亮选中州的所有省份
+                self._canvas.set_batch_selection_pids(list(state.provinces))
+            else:
+                self._canvas.set_batch_selection_pids([])
 
     def _on_country_changed(self, event) -> None:
         """Country 数据变化 → 刷新 UI。"""

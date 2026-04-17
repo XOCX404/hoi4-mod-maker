@@ -39,8 +39,9 @@ class StateController(BaseController):
         self.event_bus.emit("state_changed", state_id=0, action="refresh")
 
     def deactivate(self) -> None:
-        """离开 State 模式。"""
-        pass
+        """离开 State 模式，清除高亮。"""
+        self.assign_mode = False
+        self.event_bus.emit("clear_batch_selection")
 
     def on_province_clicked(self, pid: int) -> None:
         """点击省份 → 查看该省份所属州的信息（不直接分配）。
