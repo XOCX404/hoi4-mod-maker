@@ -424,6 +424,30 @@ def import_mod_map(mod_dir: str) -> dict[str, Any]:
     else:
         warnings.append("未找到 map/strategicregions/ 目录")
 
+    # 10. 读取 railways (可选)
+    railways_data: list[dict] = []
+    railways_path = os.path.join(map_dir, "railways.txt")
+    if os.path.isfile(railways_path):
+        railways_data = _parse_railways(railways_path)
+        if railways_data:
+            warnings.append(f"读取了 {len(railways_data)} 条铁路")
+
+    # 11. 读取 supply_nodes (可选)
+    supply_data: list[dict] = []
+    supply_path = os.path.join(map_dir, "supply_nodes.txt")
+    if os.path.isfile(supply_path):
+        supply_data = _parse_supply_nodes(supply_path)
+        if supply_data:
+            warnings.append(f"读取了 {len(supply_data)} 个补给节点")
+
+    # 12. 读取 adjacencies (可选)
+    adjacencies_data: list[dict] = []
+    adj_path = os.path.join(map_dir, "adjacencies.csv")
+    if os.path.isfile(adj_path):
+        adjacencies_data = _parse_adjacencies(adj_path)
+        if adjacencies_data:
+            warnings.append(f"读取了 {len(adjacencies_data)} 条邻接关系")
+
     return {
         "width": w,
         "height": h,
@@ -436,9 +460,91 @@ def import_mod_map(mod_dir: str) -> dict[str, Any]:
         "provincial_terrain": provincial_terrain,
         "states": states_data,
         "strategic_regions": sr_data,
+        "railways": railways_data,
+        "supply_nodes": supply_data,
+        "adjacencies": adjacencies_data,
         "assets": assets,
         "warnings": warnings,
     }
+
+
+# ── 后勤文件解析 ──────────────────────────────────────────────
+
+
+def _parse_railways(path: str) -> list[dict]:
+    """解析 map/railways.txt。每行: level province1 province2 province3 ..."""
+    result = []
+    with open(path, "r", encoding="utf-8-sig", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            tokens = line.split()
+            if len(tokens) < 3:
+                continue
+            try:
+                level = int(tokens[0])
+                pids = [int(t) for t in tokens[1:]]
+                result.append({"level": level, "province_ids": pids})
+            except ValueError:
+                continue
+    return result
+
+
+def _parse_supply_nodes(path: str) -> list[dict]:
+    """解析 map/supply_nodes.txt。每行: level province_id"""
+    result = []
+    with open(path, "r", encoding="utf-8-sig", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            tokens = line.split()
+            if len(tokens) < 2:
+                continue
+            try:
+                level = int(tokens[0])
+                pid = int(tokens[1])
+                result.append({"level": level, "province_id": pid})
+            except ValueError:
+                continue
+    return result
+
+
+def _parse_adjacencies(path: str) -> list[dict]:
+    """解析 map/adjacencies.csv。格式: From;To;Type;Through;start_x;start_y;stop_x;stop_y;rule;Comment"""
+    result = []
+    with open(path, "r", encoding="utf-8-sig", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("From"):
+                continue
+            parts = line.split(";")
+            if len(parts) < 4:
+                continue
+            try:
+                from_id = int(parts[0])
+                to_id = int(parts[1])
+                if from_id < 0 or to_id < 0:
+                    continue  # 哨兵行 -1;-1;...
+                adj_type = parts[2].strip() or "sea"
+                through = int(parts[3]) if len(parts) > 3 and parts[3].strip().lstrip('-').isdigit() else -1
+                start_x = int(parts[4]) if len(parts) > 4 and parts[4].strip().lstrip('-').isdigit() else -1
+                start_y = int(parts[5]) if len(parts) > 5 and parts[5].strip().lstrip('-').isdigit() else -1
+                stop_x = int(parts[6]) if len(parts) > 6 and parts[6].strip().lstrip('-').isdigit() else -1
+                stop_y = int(parts[7]) if len(parts) > 7 and parts[7].strip().lstrip('-').isdigit() else -1
+                rule = parts[8].strip() if len(parts) > 8 else ""
+                comment = parts[9].strip() if len(parts) > 9 else ""
+                result.append({
+                    "from_id": from_id, "to_id": to_id,
+                    "type": adj_type, "through_id": through,
+                    "start_x": start_x, "start_y": start_y,
+                    "stop_x": stop_x, "stop_y": stop_y,
+                    "rule": rule, "comment": comment,
+                })
+            except (ValueError, IndexError):
+                continue
+    return result
 
 
 # ── 美术资产扫描 ──────────────────────────────────────────────

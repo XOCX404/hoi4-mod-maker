@@ -63,6 +63,36 @@ def _populate_imported_data(project, result: dict) -> None:
             if sd.get("owner") == tag:
                 project.country_mgr.assign_state(sd["id"], tag)
 
+    # 填充 railways
+    from domain.managers.railway import RailwayEntry
+    for rd in result.get("railways", []):
+        entry = RailwayEntry(
+            level=rd["level"],
+            province_ids=rd["province_ids"],
+        )
+        project.railway_mgr.add(entry)
+
+    # 填充 supply_nodes
+    for sd in result.get("supply_nodes", []):
+        project.supply_mgr.set_node(sd["province_id"], sd["level"])
+
+    # 填充 adjacencies
+    from domain.managers.adjacency import AdjacencyEntry
+    for ad in result.get("adjacencies", []):
+        entry = AdjacencyEntry(
+            from_id=ad["from_id"],
+            to_id=ad["to_id"],
+            type=ad.get("type", "sea"),
+            through_id=ad.get("through_id", -1),
+            start_x=ad.get("start_x", -1),
+            start_y=ad.get("start_y", -1),
+            stop_x=ad.get("stop_x", -1),
+            stop_y=ad.get("stop_y", -1),
+            rule_name=ad.get("rule", ""),
+            comment=ad.get("comment", ""),
+        )
+        project.adjacency_mgr.add(entry)
+
 
 class MainWindowFileOpsMixin:
     """文件/导入/导出/测试导出操作，混入 MainWindow。"""
@@ -325,6 +355,9 @@ class MainWindowFileOpsMixin:
         self._project.country_mgr.clear()
         self._project.continent_mgr.clear()
         self._project.strategic_region_mgr.clear()
+        self._project.railway_mgr.clear()
+        self._project.supply_mgr.clear()
+        self._project.adjacency_mgr.clear()
         self._cmd_history.clear()
 
         # 保留导入的美术资产（colormap/world_normal 等），导出时不会覆盖
