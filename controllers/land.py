@@ -40,7 +40,7 @@ class LandController(BaseController):
         has_provinces = int(self.project.map_data.province_map.max()) > 0
         if has_provinces:
             self._emit_status(
-                "⚠ 已有省份数据 — 画地图不会清除省份，新区域用「增量生成」补省份"
+                "⚠ 已有省份 — 画新陆地后切到「省份」模式点生成，选「Yes」= 只给新区域生成"
             )
         else:
             self._emit_status("大陆编辑模式")
