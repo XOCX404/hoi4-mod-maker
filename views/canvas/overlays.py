@@ -203,7 +203,7 @@ class OverlayMixin:
     def _update_brush_cursor(self, sx: int, sy: int) -> None:
         """更新画笔预览光标位置和大小。"""
         show_brush = (
-            self._current_tool in ("brush", "eraser")
+            self._current_tool in ("brush", "eraser", "new_land")
             and self._display_mode in ("land", "river")
         ) or getattr(self, '_density_overlay_visible', False)
 

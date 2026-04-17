@@ -748,6 +748,14 @@ class ToolPanel(QWidget):
 
     def _switch_to_mode(self, mode: str) -> None:
         """切换到指定 mode_id，更新 stack、hint、信号。"""
+        # 确保子标签栏显示（初始化时 _on_nav_changed 可能没被调用）
+        nav_id = self._sub_to_nav.get(mode, "")
+        if nav_id and nav_id != self._current_nav:
+            self._current_nav = nav_id
+            subs = self._nav_subs.get(nav_id, [])
+            self._sub_tabs.set_tabs(subs)
+            self._sub_tabs.select_tab(mode)
+
         idx = self._mode_index.get(mode, 0)
         self._stack.setCurrentIndex(idx)
         # 切换模式时自动设工具
