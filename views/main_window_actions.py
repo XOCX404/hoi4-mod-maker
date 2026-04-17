@@ -166,7 +166,104 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
             "province_map_regenerated", incremental=was_incremental,
         )
 
-        self._status_info.setText(tr("status_gen_done").format(count=count))
+        # 增量生成后：新省份自动加入最近的 state/战略区
+        if was_incremental:
+            assigned = self._auto_assign_new_provinces(province_map)
+            self._status_info.setText(
+                tr("status_gen_done").format(count=count)
+                + f" ({assigned} 个新省份已自动分配)"
+            )
+        else:
+            self._status_info.setText(tr("status_gen_done").format(count=count))
+
+    def _auto_assign_new_provinces(self, province_map) -> int:
+        """增量生成后，把没有 state 的陆地省份分配到相邻最近的 state/战略区。"""
+        import numpy as np
+        from data.constants import TILE_LAND
+
+        state_mgr = self._project.state_mgr
+        sr_mgr = self._project.strategic_region_mgr
+        tile_map = self._canvas.tile_map
+        pm = province_map
+
+        # 找未分配 state 的陆地省份
+        max_pid = int(pm.max())
+        if max_pid == 0:
+            return 0
+
+        assigned_count = 0
+        # 预计算质心
+        flat = pm.ravel()
+        n = max_pid + 1
+        pid_count = np.bincount(flat, minlength=n)
+        ys, xs = np.mgrid[0:pm.shape[0], 0:pm.shape[1]]
+        sum_y = np.bincount(flat, weights=ys.ravel().astype(np.float64), minlength=n)
+        sum_x = np.bincount(flat, weights=xs.ravel().astype(np.float64), minlength=n)
+
+        # 已有 state 的省份 → 质心
+        state_centers: dict[int, tuple[float, float]] = {}  # state_id → (cy, cx)
+        for sid, state in state_mgr.states.items():
+            total_y, total_x, cnt = 0.0, 0.0, 0
+            for p in state.provinces:
+                if 0 < p < n and pid_count[p] > 0:
+                    total_y += sum_y[p] / pid_count[p]
+                    total_x += sum_x[p] / pid_count[p]
+                    cnt += 1
+            if cnt > 0:
+                state_centers[sid] = (total_y / cnt, total_x / cnt)
+
+        # 对每个未分配的陆地省份，找最近 state
+        for pid in range(1, max_pid + 1):
+            if pid_count[pid] == 0:
+                continue
+            # 检查是否陆地
+            cy = int(sum_y[pid] / pid_count[pid])
+            cx = int(sum_x[pid] / pid_count[pid])
+            cy = min(cy, pm.shape[0] - 1)
+            cx = min(cx, pm.shape[1] - 1)
+            if int(tile_map[cy, cx]) != TILE_LAND:
+                continue
+            # 已有 state → 跳过
+            if state_mgr.get_state_of_province(pid) > 0:
+                continue
+
+            # 找最近 state
+            best_sid, best_dist = 0, float('inf')
+            py = sum_y[pid] / pid_count[pid]
+            px = sum_x[pid] / pid_count[pid]
+            for sid, (sy, sx) in state_centers.items():
+                d = (py - sy) ** 2 + (px - sx) ** 2
+                if d < best_dist:
+                    best_dist = d
+                    best_sid = sid
+            if best_sid > 0:
+                state = state_mgr.get_state(best_sid)
+                if state:
+                    state.provinces.append(pid)
+                    state_mgr._province_to_state[pid] = best_sid
+                    assigned_count += 1
+
+            # 战略区域也一样
+            if sr_mgr.get_region_of_province(pid) == 0:
+                # 找最近的战略区
+                best_rid, best_dist = 0, float('inf')
+                for rid, region in sr_mgr._regions.items():
+                    if not region.province_ids:
+                        continue
+                    # 用第一个有像素的省份算距离
+                    for rp in region.province_ids[:5]:
+                        if 0 < rp < n and pid_count[rp] > 0:
+                            ry = sum_y[rp] / pid_count[rp]
+                            rx = sum_x[rp] / pid_count[rp]
+                            d = (py - ry) ** 2 + (px - rx) ** 2
+                            if d < best_dist:
+                                best_dist = d
+                                best_rid = rid
+                            break
+                if best_rid > 0:
+                    sr_mgr._regions[best_rid].province_ids.append(pid)
+
+        return assigned_count
 
     def _on_generate_error(self, msg: str) -> None:
         QMessageBox.critical(self, tr("dlg_error"), msg)
