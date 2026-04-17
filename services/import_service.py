@@ -436,6 +436,14 @@ def import_mod_map(mod_dir: str) -> dict[str, Any]:
         if adjacencies_data:
             warnings.append(f"读取了 {len(adjacencies_data)} 条邻接关系")
 
+    # 13. 读取国家颜色 (可选)
+    country_colors: dict[str, tuple[int, int, int]] = {}
+    colors_path = os.path.join(mod_dir, "common", "countries", "colors.txt")
+    if os.path.isfile(colors_path):
+        country_colors = _parse_country_colors(colors_path)
+        if country_colors:
+            warnings.append(f"读取了 {len(country_colors)} 个国家颜色")
+
     return {
         "width": w,
         "height": h,
@@ -452,8 +460,28 @@ def import_mod_map(mod_dir: str) -> dict[str, Any]:
         "supply_nodes": supply_data,
         "adjacencies": adjacencies_data,
         "assets": assets,
+        "country_colors": country_colors,
         "warnings": warnings,
     }
+
+
+# ── 国家颜色解析 ──────────────────────────────────────────────
+
+
+def _parse_country_colors(path: str) -> dict[str, tuple[int, int, int]]:
+    """解析 common/countries/colors.txt → {TAG: (R, G, B)}。"""
+    import re
+    colors: dict[str, tuple[int, int, int]] = {}
+    with open(path, "r", encoding="utf-8-sig", errors="ignore") as f:
+        text = f.read()
+    for m in re.finditer(
+        r'(\b[A-Z]{3})\s*=\s*\{[^}]*?color\s*=\s*rgb\s*\{\s*(\d+)\s+(\d+)\s+(\d+)',
+        text, re.DOTALL,
+    ):
+        tag = m.group(1)
+        r, g, b = int(m.group(2)), int(m.group(3)), int(m.group(4))
+        colors[tag] = (r, g, b)
+    return colors
 
 
 # ── 本地化扫描 ──────────────────────────────────────────────

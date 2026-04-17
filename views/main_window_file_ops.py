@@ -52,11 +52,23 @@ def _populate_imported_data(project, result: dict) -> None:
         sr_mgr._next_id = max(sr_mgr._regions.keys()) + 1
 
     # 填充 country（从 states 的 owner 提取）
+    # 填充 country（从 states 的 owner 提取，用 MOD 定义的颜色）
+    country_colors = result.get("country_colors", {})
     owners = set(sd.get("owner", "") for sd in result.get("states", []))
     owners.discard("")
     for tag in sorted(owners):
         if tag not in project.country_mgr.countries:
-            project.country_mgr.create_country(tag, name=tag)
+            color = country_colors.get(tag, None)
+            if color is None:
+                # 没有颜色定义 → 从 TAG 哈希生成
+                import hashlib
+                h = int(hashlib.md5(tag.encode()).hexdigest()[:6], 16)
+                color = (
+                    max(60, min(220, (h >> 16) & 0xFF)),
+                    max(60, min(220, (h >> 8) & 0xFF)),
+                    max(60, min(220, h & 0xFF)),
+                )
+            project.country_mgr.create_country(tag, name=tag, color=color)
         # 分配 state 到国家
         for sd in result.get("states", []):
             if sd.get("owner") == tag:
