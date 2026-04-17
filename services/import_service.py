@@ -403,6 +403,15 @@ def import_mod_map(mod_dir: str) -> dict[str, Any]:
     else:
         warnings.append("未找到 map/strategicregions/ 目录")
 
+    # 9c. 读取本地化 → 替换 state 名字（STATE_1 → "Corsica"）
+    loc_map = _scan_localisation(mod_dir)
+    if loc_map:
+        for sd in states_data:
+            key = sd.get("name", "")
+            if key in loc_map:
+                sd["name"] = loc_map[key]
+        warnings.append(f"读取了 {len(loc_map)} 条本地化文本")
+
     # 10. 读取 railways (可选)
     railways_data: list[dict] = []
     railways_path = os.path.join(map_dir, "railways.txt")
@@ -445,6 +454,57 @@ def import_mod_map(mod_dir: str) -> dict[str, Any]:
         "assets": assets,
         "warnings": warnings,
     }
+
+
+# ── 本地化扫描 ──────────────────────────────────────────────
+
+
+def _scan_localisation(mod_dir: str) -> dict[str, str]:
+    """扫描 MOD 的 localisation/ 下所有 .yml 文件，提取 KEY: "value" 映射。
+
+    优先读 english/ 子目录（最完整），再读根目录。
+    返回 {KEY: value} 字典，用于替换 state name 等。
+    """
+    import re
+    result: dict[str, str] = {}
+    loc_dir = os.path.join(mod_dir, "localisation")
+    if not os.path.isdir(loc_dir):
+        return result
+
+    def _scan_dir(d: str) -> None:
+        if not os.path.isdir(d):
+            return
+        for root, _dirs, files in os.walk(d):
+            for fn in files:
+                if not fn.endswith(".yml"):
+                    continue
+                try:
+                    with open(os.path.join(root, fn), "r", encoding="utf-8-sig", errors="ignore") as f:
+                        for line in f:
+                            # 格式: " KEY:0 \"value\"" 或 " KEY: \"value\""
+                            m = re.match(r'\s+(\S+?):\d*\s+"([^"]*)"', line)
+                            if m:
+                                result[m.group(1)] = m.group(2)
+                except OSError:
+                    pass
+
+    # 优先英文
+    _scan_dir(os.path.join(loc_dir, "english"))
+    # 再扫根目录（有些 MOD 直接放 localisation/ 下）
+    for fn in os.listdir(loc_dir):
+        full = os.path.join(loc_dir, fn)
+        if os.path.isfile(full) and fn.endswith(".yml"):
+            try:
+                with open(full, "r", encoding="utf-8-sig", errors="ignore") as f:
+                    for line in f:
+                        import re as _re
+                        m = _re.match(r'\s+(\S+?):\d*\s+"([^"]*)"', line)
+                        if m and m.group(1) not in result:
+                            result[m.group(1)] = m.group(2)
+            except OSError:
+                pass
+
+    return result
 
 
 # ── 后勤文件解析 ──────────────────────────────────────────────
