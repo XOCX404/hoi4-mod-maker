@@ -520,6 +520,7 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
             return
 
         pm = self._province_map
+        tm = self._tile_map
         h, w = pm.shape
 
         # 拿到 managers（挂在 canvas 实例上）
@@ -553,23 +554,37 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
             4: QColor(230, 130, 60, 230),   # 橙
             5: QColor(230, 60, 60, 240),    # 红（最高级）
         }
+        # 铁路线：只画陆地省份之间的线段，跳过海洋省份（避免跨海飞线）
         if railway_mgr is not None:
+            from data.constants import TILE_LAND
             for entry in railway_mgr._entries:
                 lvl = entry.level
                 color = RAIL_COLORS.get(lvl, RAIL_COLORS[1])
                 pen = QPen(color, 1 + lvl)
                 pen.setCapStyle(Qt.PenCapStyle.RoundCap)
                 painter.setPen(pen)
-                # 把 province_ids 按顺序画线
                 pts = []
                 for pid in entry.province_ids:
                     if 0 < pid <= max_pid and pid_count[pid] > 0:
-                        cx = sum_x[pid] / pid_count[pid]
-                        cy = sum_y[pid] / pid_count[pid]
-                        pts.append((cx, cy))
+                        # 检查省份是否为陆地（跳过海洋/湖泊省份）
+                        cy_idx = int(sum_y[pid] / pid_count[pid])
+                        cx_idx = int(sum_x[pid] / pid_count[pid])
+                        cy_idx = min(cy_idx, h - 1)
+                        cx_idx = min(cx_idx, w - 1)
+                        if tm is not None and int(tm[cy_idx, cx_idx]) != TILE_LAND:
+                            # 海洋省份 → 断开线段（后面重新开始）
+                            pts.append(None)
+                            continue
+                        pts.append((sum_x[pid] / pid_count[pid], sum_y[pid] / pid_count[pid]))
+                # 画线段，遇到 None 断开
                 for i in range(len(pts) - 1):
+                    if pts[i] is None or pts[i + 1] is None:
+                        continue
                     x1, y1 = pts[i]
                     x2, y2 = pts[i + 1]
+                    # 过长线段跳过（跨海连接 > 200px）
+                    if abs(x1 - x2) > 200 or abs(y1 - y2) > 200:
+                        continue
                     painter.drawLine(int(x1), int(y1), int(x2), int(y2))
 
         # 海峡/邻接 — 不在后勤 overlay 画（太多会乱），只在邻接对话框里管理
