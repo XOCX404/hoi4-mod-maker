@@ -270,6 +270,7 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
 
         # 操作按钮 → 本窗口处理（含 UI 交互）
         tp.generate_provinces_requested.connect(self._on_generate_provinces)
+        tp.expand_land_requested.connect(self._on_expand_land)
         tp.validate_requested.connect(self._on_validate)
         tp.quick_init_requested.connect(self._on_quick_init)
         tp.smooth_coast_requested.connect(self._on_smooth_coast)

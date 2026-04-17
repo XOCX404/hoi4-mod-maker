@@ -83,6 +83,41 @@ class _ValidateThread(QThread):
 class MainWindowActionsMixin(MainWindowFileOpsMixin):
     """省份生成/验证/国家对话框/河流/地形/大陆/战略区/后勤处理。"""
 
+    # ═══════════════════════ 新陆地省份扩展 ═══════════════════
+
+    def _on_expand_land(self) -> None:
+        """为新画的陆地分配省份（扩张已有省份 + 孤岛建新省份）。"""
+        if int(self._canvas.province_map.max()) == 0:
+            QMessageBox.information(self, "提示", "还没有省份，请先用「生成省份」按钮。")
+            return
+
+        self._status_info.setText("正在为新陆地分配省份...")
+        QApplication.processEvents()
+
+        from domain.generators.province import expand_provinces_to_new_land
+        pm2, new_count, consumed = expand_provinces_to_new_land(
+            self._canvas.tile_map, self._canvas.province_map,
+        )
+
+        self._canvas.province_map = pm2
+        self._project.map_data.province_map = pm2
+        self._project.mark_dirty()
+        self._update_province_count()
+        self._canvas.refresh_display()
+
+        # 自动分配到 state/战略区
+        assigned = self._auto_assign_new_provinces(pm2)
+
+        # 切到省份模式看结果
+        self._tool_panel._switch_to_mode("province")
+
+        msg = f"完成：{new_count} 个新省份"
+        if assigned > 0:
+            msg += f"，{assigned} 个已自动分配到州"
+        if consumed:
+            msg += f"\n⚠ {len(consumed)} 个海洋省份被完全吞并"
+        self._status_info.setText(msg)
+
     # ═══════════════════════ 州自动分组 ═══════════════════
 
     def _on_auto_states_with_confirm(self, per_state: int) -> None:
