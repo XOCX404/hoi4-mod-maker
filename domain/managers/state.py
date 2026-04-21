@@ -11,13 +11,15 @@ from data.constants import MAP_WIDTH, MAP_HEIGHT, TILE_LAND
 class StateData:
     """一个 State 的数据"""
     id: int
-    name: str = ""
+    name: str = ""                      # 主显示名（任何语言，可中文）— 导出到 simp_chinese yml
+    name_en: str = ""                   # 可选英文名 — 导出到 english yml；空则用 "State {id}"
     provinces: list[int] = field(default_factory=list)
     manpower: int = 100000
     category: str = "town"  # wasteland/pastoral/tiny/small/town/large_town/city/large_city/megalopolis
     owner_tag: str = ""
     victory_points: dict[int, int] = field(default_factory=dict)  # {province_id: vp_value}
-    vp_names: dict[int, str] = field(default_factory=dict)  # {province_id: city_name}
+    vp_names: dict[int, str] = field(default_factory=dict)  # {province_id: city_name 主显示名}
+    vp_names_en: dict[int, str] = field(default_factory=dict)  # {province_id: city_name 英文}
 
     # ── 进阶字段 (State modding 规范) ──
     impassable: bool = False  # 不可通行 state, 不能部署单位/建楼

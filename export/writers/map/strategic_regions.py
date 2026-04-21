@@ -140,7 +140,9 @@ def write_strategic_regions_from_mgr(region_mgr, output_dir):
         with open(os.path.join(d, f"{new_id}-strategic_region.txt"), "w") as f:
             f.write("strategic_region={\n")
             f.write(f"\tid={new_id}\n")
-            f.write(f'\tname="{region.name}"\n')
+            # 永远写 key，绝不写 region.name — 用户可能输入中文，HOI4 parser 遇
+            # 到非 ASCII 直接崩游戏。显示名走 localisation yml。
+            f.write(f'\tname="STRATEGICREGION_{new_id}"\n')
             if region.naval_terrain:
                 f.write(f"\tnaval_terrain={region.naval_terrain}\n")
             f.write("\tprovinces={\n\t\t")

@@ -146,14 +146,14 @@ _split_connected_sea = _split_connected
 @dataclass
 class StrategicRegion:
     id: int
-    name: str = ""
+    name: str = ""                 # 用户输入的主显示名（任何语言，可含中文）
+    name_en: str = ""              # 可选英文名（本地化英文 yml 用；空则默认 "Region {id}"）
     province_ids: list[int] = field(default_factory=list)
     weather_preset: str = "temperate"
     naval_terrain: str = ""  # ocean_terrain / deep_ocean / shallow_sea 等
 
-    def __post_init__(self):
-        if not self.name:
-            self.name = f"STRATEGICREGION_{self.id}"
+    # 注意: 不要再在 __post_init__ 里把 name 填成 STRATEGICREGION_{id}
+    # name 是显示名（可中文），key 在导出时独立生成（strategic_regions writer）
 
 
 class StrategicRegionManager:

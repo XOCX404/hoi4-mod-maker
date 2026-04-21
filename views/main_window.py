@@ -390,6 +390,7 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         )
         tp.strategic_region_delete_requested.connect(self._on_sr_delete)
         tp.strategic_region_name_changed.connect(self._on_sr_name_changed)
+        tp.strategic_region_name_en_changed.connect(self._on_sr_name_en_changed)
         tp.strategic_region_weather_changed.connect(self._on_sr_weather_changed)
         tp.strategic_region_naval_changed.connect(self._on_sr_naval_changed)
         tp.strategic_region_selected.connect(self._on_sr_selected)

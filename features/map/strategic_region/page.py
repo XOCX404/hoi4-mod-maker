@@ -31,6 +31,7 @@ class StrategicRegionPage(QWidget):
     strategic_region_new_requested = pyqtSignal()
     strategic_region_delete_requested = pyqtSignal()
     strategic_region_name_changed = pyqtSignal(str)
+    strategic_region_name_en_changed = pyqtSignal(str)
     strategic_region_weather_changed = pyqtSignal(str)
     strategic_region_naval_changed = pyqtSignal(str)
     strategic_region_pick_toggled = pyqtSignal(bool)
@@ -128,11 +129,25 @@ class StrategicRegionPage(QWidget):
         name_row.addWidget(name_lbl)
         self._sr_name_edit = QLineEdit()
         self._sr_name_edit.setStyleSheet(_LINEEDIT_STYLE)
+        self._sr_name_edit.setPlaceholderText(tr("sr_name_hint"))
         self._sr_name_edit.editingFinished.connect(
             lambda: self.strategic_region_name_changed.emit(self._sr_name_edit.text())
         )
         name_row.addWidget(self._sr_name_edit)
         pl.addLayout(name_row)
+
+        name_en_row = QHBoxLayout()
+        name_en_lbl = QLabel(tr("sr_name_en_label"))
+        name_en_lbl.setStyleSheet(_LABEL_STYLE)
+        name_en_row.addWidget(name_en_lbl)
+        self._sr_name_en_edit = QLineEdit()
+        self._sr_name_en_edit.setStyleSheet(_LINEEDIT_STYLE)
+        self._sr_name_en_edit.setPlaceholderText(tr("sr_name_en_hint"))
+        self._sr_name_en_edit.editingFinished.connect(
+            lambda: self.strategic_region_name_en_changed.emit(self._sr_name_en_edit.text())
+        )
+        name_en_row.addWidget(self._sr_name_en_edit)
+        pl.addLayout(name_en_row)
 
         weather_row = QHBoxLayout()
         weather_lbl = QLabel(tr("sr_weather_label"))

@@ -115,7 +115,12 @@ class StateDetailDialog(QDialog):
         lay = QFormLayout(w)
 
         self._name_edit = QLineEdit()
+        self._name_edit.setPlaceholderText(tr("state_dlg_name_hint"))
         lay.addRow(tr("state_dlg_name_label"), self._name_edit)
+
+        self._name_en_edit = QLineEdit()
+        self._name_en_edit.setPlaceholderText(tr("state_dlg_name_en_hint"))
+        lay.addRow(tr("state_dlg_name_en_label"), self._name_en_edit)
 
         self._manpower_spin = QSpinBox()
         self._manpower_spin.setRange(0, 100_000_000)
@@ -137,25 +142,33 @@ class StateDetailDialog(QDialog):
         self._supplies_spin.setDecimals(2)
         lay.addRow(tr("state_dlg_supplies_label"), self._supplies_spin)
 
-        # VP 城市命名
+        # VP 城市命名（中英两列，英文可选）
         vp_box = QGroupBox(tr("state_dlg_vp_names"))
         vp_lay = QGridLayout(vp_box)
         vp_lay.addWidget(QLabel(tr("state_dlg_vp_province")), 0, 0)
         vp_lay.addWidget(QLabel(tr("state_dlg_vp_value")), 0, 1)
         vp_lay.addWidget(QLabel(tr("state_dlg_vp_city_name")), 0, 2)
+        vp_lay.addWidget(QLabel(tr("state_dlg_vp_city_name_en")), 0, 3)
         self._vp_name_edits: dict[int, QLineEdit] = {}
+        self._vp_name_en_edits: dict[int, QLineEdit] = {}
         row_idx = 1
+        vp_names_en = getattr(self._state, "vp_names_en", {}) or {}
         for vpid, vpval in self._state.victory_points.items():
             vp_lay.addWidget(QLabel(str(vpid)), row_idx, 0)
             vp_lay.addWidget(QLabel(str(vpval)), row_idx, 1)
             edit = QLineEdit()
-            edit.setPlaceholderText(self._state.name)
+            edit.setPlaceholderText(self._state.name or f"State {self._state.id}")
             edit.setText(self._state.vp_names.get(vpid, ""))
             self._vp_name_edits[vpid] = edit
             vp_lay.addWidget(edit, row_idx, 2)
+            edit_en = QLineEdit()
+            edit_en.setPlaceholderText(f"State {self._state.id}")
+            edit_en.setText(vp_names_en.get(vpid, ""))
+            self._vp_name_en_edits[vpid] = edit_en
+            vp_lay.addWidget(edit_en, row_idx, 3)
             row_idx += 1
         if not self._state.victory_points:
-            vp_lay.addWidget(QLabel(tr("state_dlg_vp_none")), 1, 0, 1, 3)
+            vp_lay.addWidget(QLabel(tr("state_dlg_vp_none")), 1, 0, 1, 4)
         lay.addRow(vp_box)
 
         return w
@@ -254,7 +267,10 @@ class StateDetailDialog(QDialog):
 
     def _load_from_state(self) -> None:
         s = self._state
-        self._name_edit.setText(s.name)
+        # 如果旧数据 name 是 key 形式（STATE_123），UI 显示空让用户填显示名
+        display_name = s.name if (s.name and s.name != f"STATE_{s.id}") else ""
+        self._name_edit.setText(display_name)
+        self._name_en_edit.setText(getattr(s, "name_en", "") or "")
         self._manpower_spin.setValue(int(s.manpower or 0))
         self._impassable_check.setChecked(bool(getattr(s, "impassable", False)))
 
@@ -284,7 +300,9 @@ class StateDetailDialog(QDialog):
 
     def _on_accept(self) -> None:
         s = self._state
-        s.name = self._name_edit.text().strip() or f"STATE_{s.id}"
+        # name 留空就留空（不自动填 key；导出时按 name_en 或默认 "State {id}" 兜底）
+        s.name = self._name_edit.text().strip()
+        s.name_en = self._name_en_edit.text().strip()
         s.manpower = int(self._manpower_spin.value())
         s.impassable = bool(self._impassable_check.isChecked())
         s.controller_tag = self._controller_combo.currentData() or ""
@@ -307,10 +325,13 @@ class StateDetailDialog(QDialog):
             self._claims_list.item(i).text() for i in range(self._claims_list.count())
         ]
 
-        # VP 城市名
+        # VP 城市名（中英）
+        if not hasattr(s, "vp_names_en") or s.vp_names_en is None:
+            s.vp_names_en = {}
         for vpid, edit in self._vp_name_edits.items():
-            name = edit.text().strip()
-            s.vp_names[vpid] = name
+            s.vp_names[vpid] = edit.text().strip()
+        for vpid, edit in self._vp_name_en_edits.items():
+            s.vp_names_en[vpid] = edit.text().strip()
 
         self.accept()
 

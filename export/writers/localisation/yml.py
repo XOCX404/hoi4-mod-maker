@@ -1,5 +1,83 @@
-"""localisation/*.yml 本地化."""
+"""localisation/*.yml 本地化.
+
+规则（HOI4 标准）:
+- state/strategic_region/city 的内部文件永远只写 **key**（如 STATE_123）
+- 显示名走 yml，按语言分 english / simp_chinese 两份
+- 用户输入的 `name` = 主显示名（任何语言）
+- 用户输入的 `name_en` = 可选英文名（空则用默认 "State {id}"）
+"""
 import os
+
+
+def _state_name_en(s, sid: int) -> str:
+    """返回 state 英文 yml 显示名。
+    优先 name_en；如果 name 是纯 ASCII 就回退用它（用户常常只填一个）；否则默认。
+    """
+    name_en = (getattr(s, "name_en", "") or "").strip()
+    if name_en:
+        return name_en
+    name = (getattr(s, "name", "") or "").strip()
+    if name and name != f"STATE_{sid}" and name.isascii():
+        return name
+    return f"State {sid}"
+
+
+def _state_name_local(s, sid: int) -> str:
+    """返回 state 主语言 yml 显示名（优先用户输入的 name）"""
+    name = (getattr(s, "name", "") or "").strip()
+    # 排除 key 形式（旧数据或默认 fallback）
+    if name and name != f"STATE_{sid}":
+        return name
+    return _state_name_en(s, sid)
+
+
+def _region_name_en(r, rid: int) -> str:
+    name_en = (getattr(r, "name_en", "") or "").strip()
+    if name_en:
+        return name_en
+    name = (getattr(r, "name", "") or "").strip()
+    if name and name != f"STRATEGICREGION_{rid}" and name.isascii():
+        return name
+    return f"Region {rid}"
+
+
+def _region_name_local(r, rid: int) -> str:
+    name = (getattr(r, "name", "") or "").strip()
+    if name and name != f"STRATEGICREGION_{rid}":
+        return name
+    return _region_name_en(r, rid)
+
+
+def _city_name_en(s, pid: int, fallback_en: str, vp_idx: int) -> str:
+    """VP 城市英文名。
+    优先 vp_names_en；若空则回退 vp_names（如果是 ASCII）；再回退到 state 英文名。
+    """
+    custom_en = (getattr(s, "vp_names_en", {}) or {}).get(pid, "").strip()
+    if custom_en:
+        return custom_en
+    custom = (s.vp_names or {}).get(pid, "").strip()
+    if custom and custom.isascii():
+        return custom
+    base = _state_name_en(s, s.id)
+    if vp_idx == 0:
+        return base
+    return f"{base} City {vp_idx + 1}"
+
+
+def _city_name_local(s, pid: int, vp_idx: int) -> str:
+    """VP 城市本地显示名（优先用户输入）"""
+    custom = (s.vp_names or {}).get(pid, "").strip()
+    if custom:
+        return custom
+    base = _state_name_local(s, s.id)
+    if vp_idx == 0:
+        return base
+    return f"{base} City {vp_idx + 1}"
+
+
+def _escape_yml(text: str) -> str:
+    """yml 字符串里的 `"` 会截断，替换成单引号。也剔除换行。"""
+    return text.replace('"', "'").replace("\n", " ").replace("\r", "")
 
 
 def write_localisation_simple(mod_name, tag, states, output_dir, region_count=24):
@@ -23,83 +101,103 @@ def write_localisation_simple(mod_name, tag, states, output_dir, region_count=24
 
 
 def write_localisation_full(mod_name, state_mgr, country_mgr, states, output_dir,
-                             region_count=24):
-    """完整本地化。同时生成英文和简体中文版本（HOI4 按语言加载对应yml）。"""
+                             region_count=24, region_mgr=None):
+    """完整本地化。生成英文 + 简中两份 yml（HOI4 按语言加载对应 yml）。
+
+    每个 key 的英文/中文内容独立计算（不再两份文件同内容）:
+    - english yml 用 obj.name_en 或默认 'State {id}' / 'Region {id}'
+    - simp_chinese yml 用 obj.name（可中文）或回退到 name_en
+    """
     d = os.path.join(output_dir, "localisation")
     os.makedirs(d, exist_ok=True)
     safe = mod_name.replace(" ", "_")
 
-    def _write_yml(lang):
+    def _write_yml(lang: str):
         """lang: 'english' or 'simp_chinese'"""
+        is_en = (lang == "english")
         with open(os.path.join(d, f"{safe}_l_{lang}.yml"), "w", encoding="utf-8-sig") as f:
             f.write(f"l_{lang}:\n")
-            # State 名称 + VP（城市）名称
+
+            # ── State + VP 城市 ──
             if state_mgr and state_mgr.states:
                 for sid, s in state_mgr.states.items():
-                    f.write(f' STATE_{sid}:0 "{s.name}"\n')
-                    # 每个 VP 省份生成独立城市名
+                    name = _state_name_en(s, sid) if is_en else _state_name_local(s, sid)
+                    f.write(f' STATE_{sid}:0 "{_escape_yml(name)}"\n')
                     for vp_idx, vpid in enumerate(s.victory_points.keys()):
-                        # 优先用用户自定义的城市名
-                        custom_name = s.vp_names.get(vpid, "").strip()
-                        if custom_name:
-                            city_name = custom_name
-                        elif vp_idx == 0:
-                            city_name = s.name
+                        if is_en:
+                            city = _city_name_en(s, vpid, _state_name_en(s, sid), vp_idx)
                         else:
-                            city_name = f"{s.name} City {vp_idx + 1}"
-                        f.write(f' VICTORY_POINTS_{vpid}:0 "{city_name}"\n')
+                            city = _city_name_local(s, vpid, vp_idx)
+                        f.write(f' VICTORY_POINTS_{vpid}:0 "{_escape_yml(city)}"\n')
             else:
                 for sid in states:
-                    f.write(f' STATE_{sid}:0 "State {sid}"\n')
-            # 国家名称（完整：TAG、TAG_DEF、TAG_ADJ、TAG_leader_despotism等）
+                    default = f"State {sid}" if is_en else f"状态 {sid}"
+                    f.write(f' STATE_{sid}:0 "{default}"\n')
+
+            # ── 国家 ──
             if country_mgr and country_mgr.countries:
                 for tag, c in country_mgr.countries.items():
-                    f.write(f' {tag}:0 "{c.name}"\n')
-                    f.write(f' {tag}_DEF:0 "{c.name}"\n')
-                    f.write(f' {tag}_ADJ:0 "{c.name}"\n')
-                    f.write(f' {tag}_BOOKMARK_DESC:0 "Play as {c.name}"\n')
-                    f.write(f' {tag}_leader_despotism:0 "{c.name} Leader"\n')
-                    f.write(f' {tag}_leader_conservatism:0 "{c.name} Leader"\n')
-                    f.write(f' {tag}_leader_nazism:0 "{c.name} Leader"\n')
-                    f.write(f' {tag}_leader_marxism:0 "{c.name} Leader"\n')
-                    f.write(f' {tag}_field_marshal_1:0 "{c.name} Marshal"\n')
-                    f.write(f' {tag}_general_1:0 "{c.name} General"\n')
-                    f.write(f' {tag}_admiral_1:0 "{c.name} Admiral"\n')
-                    # 民族精神本地化
+                    cname = _escape_yml(c.name or tag)
+                    f.write(f' {tag}:0 "{cname}"\n')
+                    f.write(f' {tag}_DEF:0 "{cname}"\n')
+                    f.write(f' {tag}_ADJ:0 "{cname}"\n')
+                    play_as = f"Play as {cname}" if is_en else f"扮演 {cname}"
+                    f.write(f' {tag}_BOOKMARK_DESC:0 "{play_as}"\n')
+                    leader = f"{cname} Leader" if is_en else f"{cname} 领袖"
+                    f.write(f' {tag}_leader_despotism:0 "{leader}"\n')
+                    f.write(f' {tag}_leader_conservatism:0 "{leader}"\n')
+                    f.write(f' {tag}_leader_nazism:0 "{leader}"\n')
+                    f.write(f' {tag}_leader_marxism:0 "{leader}"\n')
+                    marshal = f"{cname} Marshal" if is_en else f"{cname} 元帅"
+                    general = f"{cname} General" if is_en else f"{cname} 将军"
+                    admiral = f"{cname} Admiral" if is_en else f"{cname} 海军上将"
+                    f.write(f' {tag}_field_marshal_1:0 "{marshal}"\n')
+                    f.write(f' {tag}_general_1:0 "{general}"\n')
+                    f.write(f' {tag}_admiral_1:0 "{admiral}"\n')
                     for spirit in c.national_spirits:
-                        nm = spirit.name.replace('"', "'")
-                        ds = (spirit.desc or spirit.name).replace('"', "'")
+                        nm = _escape_yml(spirit.name)
+                        ds = _escape_yml(spirit.desc or spirit.name)
                         f.write(f' {spirit.id}:0 "{nm}"\n')
                         f.write(f' {spirit.id}_desc:0 "{ds}"\n')
             else:
-                # 默认国家（无 country_mgr）
                 tag = "AAA"
-                f.write(f' {tag}:0 "Fantasy Country"\n')
-                f.write(f' {tag}_DEF:0 "Fantasy Country"\n')
-                f.write(f' {tag}_ADJ:0 "Fantasy"\n')
-                f.write(f' {tag}_BOOKMARK_DESC:0 "Play as Fantasy Country"\n')
-                f.write(f' {tag}_leader_despotism:0 "Fantasy Leader"\n')
-                f.write(f' {tag}_leader_conservatism:0 "Fantasy Leader"\n')
-                f.write(f' {tag}_leader_nazism:0 "Fantasy Leader"\n')
-                f.write(f' {tag}_leader_marxism:0 "Fantasy Leader"\n')
-                f.write(f' {tag}_field_marshal_1:0 "Fantasy Marshal"\n')
-                f.write(f' {tag}_general_1:0 "Fantasy General"\n')
-                f.write(f' {tag}_admiral_1:0 "Fantasy Admiral"\n')
-            for rid in range(1, region_count + 1):
-                f.write(f' STRATEGICREGION_{rid}:0 "Region {rid}"\n')
-            f.write(f' SUPPLYAREA_1:0 "{mod_name} Supply"\n')
-            # bookmark 本地化 — 用 mod_name 的 UPPER 形式作 key
-            bm_safe = mod_name.replace(" ", "_").upper()
-            f.write(f' {bm_safe}_BOOKMARK:0 "{mod_name}"\n')
-            f.write(f' {bm_safe}_BOOKMARK_DESC:0 "A world of {mod_name} awaits."\n')
-            f.write(f' {bm_safe}_OTHER_BOOKMARK_DESC:0 "Other nations"\n')
-            # 兼容旧 key (FANTASY_BOOKMARK)
-            if bm_safe != "FANTASY":
-                f.write(f' FANTASY_BOOKMARK:0 "{mod_name}"\n')
-                f.write(f' FANTASY_BOOKMARK_DESC:0 "A world of {mod_name} awaits."\n')
-                f.write(f' OTHER_BOOKMARK_DESC:0 "Other nations"\n')
+                cname = "Fantasy Country" if is_en else "奇幻国度"
+                f.write(f' {tag}:0 "{cname}"\n')
+                f.write(f' {tag}_DEF:0 "{cname}"\n')
+                f.write(f' {tag}_ADJ:0 "{cname}"\n')
+                f.write(f' {tag}_BOOKMARK_DESC:0 "Play as {cname}"\n')
+                f.write(f' {tag}_leader_despotism:0 "{cname} Leader"\n')
+                f.write(f' {tag}_leader_conservatism:0 "{cname} Leader"\n')
+                f.write(f' {tag}_leader_nazism:0 "{cname} Leader"\n')
+                f.write(f' {tag}_leader_marxism:0 "{cname} Leader"\n')
+                f.write(f' {tag}_field_marshal_1:0 "{cname} Marshal"\n')
+                f.write(f' {tag}_general_1:0 "{cname} General"\n')
+                f.write(f' {tag}_admiral_1:0 "{cname} Admiral"\n')
 
-    # 同时生成英文和简中两个版本
+            # ── 战略区 ──
+            # region_mgr 优先（用户编辑的 name/name_en），没 manager 就用 Region N 默认
+            if region_mgr is not None and region_mgr.regions:
+                for rid, r in sorted(region_mgr.regions.items()):
+                    name = _region_name_en(r, rid) if is_en else _region_name_local(r, rid)
+                    f.write(f' STRATEGICREGION_{rid}:0 "{_escape_yml(name)}"\n')
+            else:
+                for rid in range(1, region_count + 1):
+                    default = f"Region {rid}" if is_en else f"战区 {rid}"
+                    f.write(f' STRATEGICREGION_{rid}:0 "{default}"\n')
+
+            # ── 其他 ──
+            supply_name = f"{mod_name} Supply" if is_en else f"{mod_name} 补给"
+            f.write(f' SUPPLYAREA_1:0 "{_escape_yml(supply_name)}"\n')
+            bm_safe = mod_name.replace(" ", "_").upper()
+            f.write(f' {bm_safe}_BOOKMARK:0 "{_escape_yml(mod_name)}"\n')
+            desc = f"A world of {mod_name} awaits." if is_en else f"{mod_name} 的世界正等待着你。"
+            f.write(f' {bm_safe}_BOOKMARK_DESC:0 "{_escape_yml(desc)}"\n')
+            other = "Other nations" if is_en else "其他国家"
+            f.write(f' {bm_safe}_OTHER_BOOKMARK_DESC:0 "{other}"\n')
+            if bm_safe != "FANTASY":
+                f.write(f' FANTASY_BOOKMARK:0 "{_escape_yml(mod_name)}"\n')
+                f.write(f' FANTASY_BOOKMARK_DESC:0 "{_escape_yml(desc)}"\n')
+                f.write(f' OTHER_BOOKMARK_DESC:0 "{other}"\n')
+
     _write_yml("english")
     _write_yml("simp_chinese")
-

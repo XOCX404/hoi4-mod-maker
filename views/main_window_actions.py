@@ -872,8 +872,13 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         self._controllers["strategic_region"].select_region(rid)
         # 更新编辑字段
         self._tool_panel._sr_name_edit.blockSignals(True)
-        self._tool_panel._sr_name_edit.setText(r.name)
+        # 旧数据 name 可能是 STRATEGICREGION_{id} 形式，显示为空让用户填
+        display_name = r.name if (r.name and r.name != f"STRATEGICREGION_{rid}") else ""
+        self._tool_panel._sr_name_edit.setText(display_name)
         self._tool_panel._sr_name_edit.blockSignals(False)
+        self._tool_panel._sr_name_en_edit.blockSignals(True)
+        self._tool_panel._sr_name_en_edit.setText(getattr(r, "name_en", "") or "")
+        self._tool_panel._sr_name_en_edit.blockSignals(False)
         idx = self._tool_panel._sr_weather_combo.findData(r.weather_preset)
         if idx >= 0:
             self._tool_panel._sr_weather_combo.blockSignals(True)
@@ -891,6 +896,14 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         if rid > 0:
             self._controllers["strategic_region"].set_name(rid, name)
             self._refresh_sr_list()
+
+    def _on_sr_name_en_changed(self, name_en: str) -> None:
+        rid = self._get_sr_current_rid()
+        if rid <= 0:
+            return
+        r = self._project.strategic_region_mgr.get(rid)
+        if r is not None:
+            r.name_en = name_en
 
     def _on_sr_weather_changed(self, preset: str) -> None:
         rid = self._get_sr_current_rid()

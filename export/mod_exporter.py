@@ -352,7 +352,8 @@ def export_full_mod(
     if _enabled("localisation"):
         region_count = len(region_list) if region_list else 24
         _write_localisation_full(mod_name, state_mgr, country_mgr, states, output_dir,
-                                 region_count=region_count)
+                                 region_count=region_count,
+                                 region_mgr=strategic_region_mgr)
 
     # === Bookmark ===
     if _enabled("countries"):
@@ -881,9 +882,10 @@ def _write_country_ideas(country_mgr, output_dir):
 
 
 def _write_localisation_full(mod_name, state_mgr, country_mgr, states, output_dir,
-                             region_count=24):
+                             region_count=24, region_mgr=None):
     from export.writers.localisation.yml import write_localisation_full
-    return write_localisation_full(mod_name, state_mgr, country_mgr, states, output_dir, region_count)
+    return write_localisation_full(mod_name, state_mgr, country_mgr, states, output_dir,
+                                    region_count=region_count, region_mgr=region_mgr)
 
 
 # ────────────────── 辅助函数 ──────────────────

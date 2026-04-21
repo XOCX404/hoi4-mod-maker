@@ -83,7 +83,10 @@ def write_states_from_mgr(
         if not owner and country_mgr and country_mgr.countries:
             owner = list(country_mgr.countries.keys())[0]
 
-        safe_name = state.name.replace("/", "_").replace("\\", "_").replace(":", "_")
+        # 文件名只能 ASCII（Windows 某些编码下中文路径解析会出错）
+        # 优先用 name_en，否则只用 sid，不用可能含中文的 state.name
+        raw = (getattr(state, "name_en", "") or "").strip() or f"STATE_{sid}"
+        safe_name = "".join(c if (c.isalnum() or c in "_-") else "_" for c in raw)
 
         impassable = bool(getattr(state, "impassable", False))
         controller_tag = getattr(state, "controller_tag", "") or ""
