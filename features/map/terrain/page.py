@@ -182,6 +182,26 @@ class TerrainPage(QWidget):
         )
         gl.addWidget(self._mountain_amount_slider)
 
+        # 降级强度滑块 (0-100%, 默认 50%)
+        ds_row = QHBoxLayout()
+        ds_lbl = QLabel(tr("terrain_label_downgrade_strength"))
+        ds_lbl.setStyleSheet(_LABEL_STYLE)
+        ds_row.addWidget(ds_lbl)
+        self._downgrade_strength_label = QLabel("50%")
+        self._downgrade_strength_label.setStyleSheet(_DIM_LABEL_STYLE)
+        ds_row.addStretch()
+        ds_row.addWidget(self._downgrade_strength_label)
+        gl.addLayout(ds_row)
+
+        self._downgrade_strength_slider = QSlider(Qt.Orientation.Horizontal)
+        self._downgrade_strength_slider.setRange(0, 100)
+        self._downgrade_strength_slider.setValue(50)
+        self._downgrade_strength_slider.setStyleSheet(_SLIDER_STYLE)
+        self._downgrade_strength_slider.valueChanged.connect(
+            lambda v: self._downgrade_strength_label.setText(f"{v}%")
+        )
+        gl.addWidget(self._downgrade_strength_slider)
+
         # 一键降级山脉按钮
         self._downgrade_btn = QPushButton(tr("terrain_btn_downgrade"))
         self._downgrade_btn.setStyleSheet(_SECONDARY_BTN_STYLE)
@@ -353,6 +373,10 @@ class TerrainPage(QWidget):
             self._downgrade_lasso_btn.blockSignals(True)
             self._downgrade_lasso_btn.setChecked(False)
             self._downgrade_lasso_btn.blockSignals(False)
+
+    def get_downgrade_strength(self) -> float:
+        """返回当前降级强度 (0.0..1.0)。"""
+        return self._downgrade_strength_slider.value() / 100.0
 
     def get_gen_config(self):
         """返回当前 UI 参数构建的 TerrainGenConfig。"""

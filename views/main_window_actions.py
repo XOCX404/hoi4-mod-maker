@@ -659,7 +659,8 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         """降级山脉 (全图或选区)。mask=None 时全图, 否则只在 mask 内。"""
         from commands.map.downgrade_mountain import DowngradeMountainCommand
         map_data = self._project.map_data
-        cmd = DowngradeMountainCommand(map_data, mask=mask)
+        strength = self._tool_panel._terrain_page.get_downgrade_strength()
+        cmd = DowngradeMountainCommand(map_data, mask=mask, strength=strength)
         self._cmd_history.execute(cmd)
         self._canvas.terrain_map = map_data.terrain_map
         self._canvas.height_map = map_data.height_map

@@ -73,18 +73,31 @@ class DowngradeMountainCommand(Command):
         self,
         map_data: MapData,
         mask: np.ndarray | None = None,
+        strength: float = 0.5,
     ) -> None:
         """
         mask: None = 对整张地图降级
               (H,W) bool 数组 = 仅对 mask==True 的像素降级
+        strength: 0..1, 降级力度
+            1.0 = 整个 band 都降级 (-45/-35/-30 高度)
+            0.5 = 只降 band 上半段 (-22/-17/-15 高度, 更温和)
+            0.0 = 啥都不降 (no-op)
         """
         self._map_data = map_data
         self._mask = mask.copy() if mask is not None else None
+        self._strength = float(max(0.0, min(1.0, strength)))
         self._old_terrain: np.ndarray | None = None
         self._old_height: np.ndarray | None = None
         self._old_prov_terrain: dict | None = None
 
     def execute(self) -> None:
+        if self._strength <= 0:
+            # no-op, 仍然 snapshot 方便统一 undo
+            self._old_terrain = self._map_data.terrain_map.copy()
+            self._old_height = self._map_data.height_map.copy()
+            self._old_prov_terrain = dict(self._map_data.provincial_terrain)
+            return
+
         # 注意: terrain_map 是 ref, 改回去会污染. 必须先 copy 原始值
         tm_orig = self._map_data.terrain_map.copy()  # 原始 palette 给高度降级用
         hm = self._map_data.height_map
@@ -92,26 +105,45 @@ class DowngradeMountainCommand(Command):
         self._old_height = hm.copy()
         self._old_prov_terrain = dict(self._map_data.provincial_terrain)
 
-        # —— Step 1: 应用 palette 降级 LUT (雪→山, 山→丘, 丘→平) ——
+        # —— Step 1: 按强度计算每个 band 的"降级阈值"
+        # 强度 1.0: 整个 band 都降级 (threshold = band_low)
+        # 强度 0.5: 只降 band 上半段 (threshold = 中点)
+        # 强度 0.2: 只降 band 最顶端 20%
+        # 对陆地像素逐个判断"当前高度 > 阈值"才降级
+        # Band 区间 (对应 TerrainGenConfig 默认值):
+        #   Hills: 130-165, Mountain: 165-210, Snow: 210+
+        #   Plains: <130 (不降级)
+        s = self._strength
+        hills_thr = 130 + (1 - s) * 35   # 130..165
+        mountain_thr = 165 + (1 - s) * 45  # 165..210
+        snow_thr = 210 + (1 - s) * 30    # 210..240 (snow 上限算 240)
+
+        # 找出每种 band 里"够高被降级"的像素
+        was_snow = np.isin(tm_orig, _SNOW_PALETTES) & (hm >= snow_thr)
+        was_mountain = np.isin(tm_orig, _MOUNTAIN_PALETTES) & (hm >= mountain_thr)
+        was_hills = np.isin(tm_orig, _HILLS_PALETTES) & (hm >= hills_thr)
+        downgrade_mask = was_snow | was_mountain | was_hills
+
+        # —— Step 2: 只对 downgrade_mask 内的像素应用 palette LUT ——
         lut = np.arange(256, dtype=np.uint8)
         for old_idx, new_idx in _PALETTE_DOWNGRADE.items():
             lut[old_idx] = new_idx
-        new_tm = lut[tm_orig]
+        new_tm = tm_orig.copy()
+        new_tm[downgrade_mask] = lut[tm_orig[downgrade_mask]]
 
-        # —— Step 2: 清理降级后的"小丘陵斑块"（原本是散落山地碎点）——
-        # 降级后, 原来的小山地变成小丘陵斑块, 我们再把 <50 像素的丘陵斑块降为平原
-        hills_mask = np.isin(new_tm, _HILLS_PALETTES)
-        small_patch_mask = np.zeros_like(hills_mask)
-        if np.any(hills_mask):
+        # —— Step 3: 清理小丘陵斑块 (只处理刚降下来的 hills) ——
+        hills_after = np.isin(new_tm, _HILLS_PALETTES) & downgrade_mask
+        small_patch_mask = np.zeros_like(hills_after)
+        if np.any(hills_after):
             from scipy.ndimage import label as _label
-            labels, n = _label(hills_mask, structure=np.ones((3, 3), dtype=bool))
+            labels, n = _label(hills_after, structure=np.ones((3, 3), dtype=bool))
             if n > 0:
                 sizes = np.bincount(labels.ravel())
                 small_labels = np.where(sizes < _MIN_PATCH_PIXELS)[0]
-                small_labels = small_labels[small_labels > 0]  # 排除背景
+                small_labels = small_labels[small_labels > 0]
                 if len(small_labels) > 0:
                     small_patch_mask = np.isin(labels, small_labels)
-                    new_tm[small_patch_mask] = 0  # 降为平原
+                    new_tm[small_patch_mask] = 0
 
         # —— 如果指定了选区 mask, 把 mask 外的 terrain 恢复为原值 ——
         if self._mask is not None:
@@ -119,28 +151,23 @@ class DowngradeMountainCommand(Command):
 
         self._map_data.terrain_map[:] = new_tm
 
-        # —— Step 3: 高度图降级 (基于原 terrain 的 palette 类别) ——
-        # 这一步至关重要: 只改视觉不改高度, 游戏内 3D 和贴图会割裂。
-        # 用 tm_orig (原始 copy), 不要用 tm (已经被覆盖)
+        # —— Step 4: 高度图降级 (只降 Step 1 标记为被降级的像素, 量按 strength 缩放) ——
         new_hm = hm.astype(np.int16)  # 用 int16 避免下溢
-        was_snow = np.isin(tm_orig, _SNOW_PALETTES)
-        was_mountain = np.isin(tm_orig, _MOUNTAIN_PALETTES)
-        was_hills = np.isin(tm_orig, _HILLS_PALETTES)
         # 如果有 mask, 高度降级也限制在选区内
         if self._mask is not None:
-            was_snow &= self._mask
-            was_mountain &= self._mask
-            was_hills &= self._mask
+            was_snow = was_snow & self._mask
+            was_mountain = was_mountain & self._mask
+            was_hills = was_hills & self._mask
             small_patch_mask_in = small_patch_mask & self._mask
         else:
             small_patch_mask_in = small_patch_mask
-        new_hm[was_snow] -= _HEIGHT_DROP_SNOW
-        new_hm[was_mountain] -= _HEIGHT_DROP_MOUNTAIN
-        new_hm[was_hills] -= _HEIGHT_DROP_HILLS
-        # 小斑点(原山地碎点)被清理成平原, 高度也要降到平原级
-        # 注意: 这些像素已经在上面 was_mountain/was_hills 里被降了, 再多降一点推到平原
-        extra_drop = small_patch_mask_in & (~was_snow)  # 小斑点额外降 15
-        new_hm[extra_drop] -= 15
+        # 按 strength 缩放下降量(1.0=-45/-35/-30, 0.5=-22/-17/-15)
+        new_hm[was_snow] -= int(_HEIGHT_DROP_SNOW * s)
+        new_hm[was_mountain] -= int(_HEIGHT_DROP_MOUNTAIN * s)
+        new_hm[was_hills] -= int(_HEIGHT_DROP_HILLS * s)
+        # 小斑点额外降
+        extra_drop = small_patch_mask_in & (~was_snow)
+        new_hm[extra_drop] -= int(15 * s)
         # 守底线: 陆地不能低于 SEA_LEVEL+1
         land_mask = self._map_data.tile_map == 1  # TILE_LAND
         np.clip(new_hm, 0, 255, out=new_hm)
@@ -151,34 +178,31 @@ class DowngradeMountainCommand(Command):
         )
         self._map_data.height_map[:] = new_hm_u8
 
-        # —— Step 4: 降级 provincial_terrain dict (属性层) ——
-        # 有 mask 时只降级选区内"多数像素在选区里"的省份
+        # —— Step 5: 降级 provincial_terrain dict (属性层) ——
+        # 只降级"过半像素实际被改"的省份, 避免零星像素变化就改整省属性
+        changed_mask = downgrade_mask.copy()
         if self._mask is not None:
-            in_sel_pids = self._find_provinces_in_mask()
-        else:
-            in_sel_pids = None
+            changed_mask &= self._mask
+        downgrade_pids = self._pids_majority_in_mask(changed_mask)
+
         new_prov: dict = {}
         for pid, typ in self._old_prov_terrain.items():
-            if in_sel_pids is None or pid in in_sel_pids:
+            if pid in downgrade_pids:
                 new_prov[pid] = _TYPE_DOWNGRADE.get(typ, typ)
             else:
                 new_prov[pid] = typ
         self._map_data.provincial_terrain.clear()
         self._map_data.provincial_terrain.update(new_prov)
 
-    def _find_provinces_in_mask(self) -> set[int]:
+    def _pids_majority_in_mask(self, mask: np.ndarray) -> set[int]:
         """返回 province_map 里 >50% 像素落在 mask 内的 province id 集合。"""
-        pm = self._map_data.province_map
-        mask = self._mask
-        # 数每个 pid 在 mask 内/外的像素数
-        in_pids = pm[mask]
-        all_pids = pm.ravel()
-        if in_pids.size == 0:
+        if not np.any(mask):
             return set()
+        pm = self._map_data.province_map
+        all_pids = pm.ravel()
         max_pid = int(all_pids.max())
         total = np.bincount(all_pids, minlength=max_pid + 1)
-        in_cnt = np.bincount(in_pids, minlength=max_pid + 1)
-        # 只取总像素数 >0 且选区内占比 >50% 的 pid
+        in_cnt = np.bincount(pm[mask], minlength=max_pid + 1)
         ratio = np.zeros_like(total, dtype=np.float32)
         nonzero = total > 0
         ratio[nonzero] = in_cnt[nonzero] / total[nonzero]
