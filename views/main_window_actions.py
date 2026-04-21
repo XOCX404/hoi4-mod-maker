@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
 
-from ui.i18n import tr, set_language, get_language
+from ui.i18n import tr, set_language, get_language, available_languages
 from views.main_window_file_ops import MainWindowFileOpsMixin
 
 if TYPE_CHECKING:
@@ -1008,7 +1008,16 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
     # ═══════════════════════ 杂项 ═══════════════════════════
 
     def _on_toggle_language(self) -> None:
-        new_lang = "en" if get_language() == "zh" else "zh"
+        # 在已加载的所有语言之间循环（zh → en → ja → ... → zh）
+        langs = available_languages()
+        if not langs:
+            return
+        cur = get_language()
+        try:
+            next_idx = (langs.index(cur) + 1) % len(langs)
+        except ValueError:
+            next_idx = 0
+        new_lang = langs[next_idx]
         set_language(new_lang)
         # 保存语言设置到 json
         import json, os

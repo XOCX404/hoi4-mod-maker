@@ -87,7 +87,7 @@ class WelcomePage(QWidget):
     open_project_requested = pyqtSignal()
     open_recent_requested = pyqtSignal(str)         # path
     import_mod_requested = pyqtSignal()              # 导入MOD地图
-    language_changed = pyqtSignal(str)               # "zh" / "en"
+    language_changed = pyqtSignal(str)               # 语言 code, eg. "zh" / "en" / "ja"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -131,10 +131,10 @@ class WelcomePage(QWidget):
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left.addWidget(version)
 
-        # 语言切换
+        # 语言切换（自动按 ui/i18n/ 下已有语言文件夹填充）
         lang_row = QHBoxLayout()
         lang_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        from ui.i18n import get_language
+        from ui.i18n import get_language, available_languages, language_display_name
         cur = get_language()
 
         def _lang_btn(text: str, lang: str) -> QPushButton:
@@ -154,11 +154,11 @@ class WelcomePage(QWidget):
                     border-color: {_ACCENT};
                 }}
             """)
-            btn.clicked.connect(lambda: self._switch_lang(lang))
+            btn.clicked.connect(lambda _checked=False, _l=lang: self._switch_lang(_l))
             return btn
 
-        lang_row.addWidget(_lang_btn("中文", "zh"))
-        lang_row.addWidget(_lang_btn("English", "en"))
+        for lang in available_languages():
+            lang_row.addWidget(_lang_btn(language_display_name(lang), lang))
         left.addLayout(lang_row)
 
         left.addSpacing(24)

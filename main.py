@@ -25,9 +25,11 @@ def main():
         try:
             with open(config_path, "r") as f:
                 config = json.load(f)
-            if config.get("language") in ("zh", "en"):
-                from ui.i18n import set_language
-                set_language(config["language"])
+            lang = config.get("language")
+            if lang:
+                from ui.i18n import set_language, available_languages
+                if lang in available_languages():
+                    set_language(lang)
         except Exception:
             pass
 

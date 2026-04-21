@@ -1,0 +1,41 @@
+"""
+menu — zh 翻译
+
+本文件由 tools/migrate_i18n.py 生成。后续手动维护。
+"""
+
+STRINGS: dict[str, str] = {
+    "action_about": "关于",
+    "action_exit": "退出",
+    "action_export_mod": "导出 MOD",
+    "action_generate_heightmap": "生成高度图",
+    "action_generate_provinces": "生成省份",
+    "action_guide": "新手引导",
+    "action_import_image": "导入参考图片",
+    "action_import_landmask": "从图片提取陆海...",
+    "action_import_mod_map": "导入MOD地图...",
+    "action_language": "语言 / Language",
+    "action_load_vanilla_ref": "加载原版地图参考",
+    "action_new": "新建项目",
+    "action_open": "打开项目",
+    "action_paths": "路径设置",
+    "action_redo": "重做",
+    "action_reset_hints": "重置操作提示",
+    "action_save": "保存项目",
+    "action_shortcut_settings": "快捷键设置...",
+    "action_show_grid": "显示网格",
+    "action_show_ref": "显示参考图",
+    "action_test_export": "测试导出（最小MOD）",
+    "action_undo": "撤销",
+    "action_validate": "验证省份",
+    "action_zoom_fit": "适应窗口",
+    "action_zoom_in": "放大",
+    "action_zoom_out": "缩小",
+    "app_title": "HOI4 幻想世界 MOD 制作工具",
+    "menu_edit": "编辑(&E)",
+    "menu_file": "文件(&F)",
+    "menu_help": "帮助(&H)",
+    "menu_settings": "设置(&S)",
+    "menu_tools": "工具(&T)",
+    "menu_view": "视图(&V)",
+}

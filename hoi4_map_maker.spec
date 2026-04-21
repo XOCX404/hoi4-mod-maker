@@ -5,8 +5,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+from pathlib import Path
 
 block_cipher = None
+
+# 动态扫描 ui/i18n/<lang>/*.py, 自动生成 hiddenimports
+# 社区加新语言只要放 ui/i18n/<lang>/ 文件夹, 重打包自动识别, 不用改这个 spec
+_I18N_DIR = Path('ui/i18n')
+_i18n_hiddenimports = [
+    f'ui.i18n.{p.parent.name}.{p.stem}'
+    for p in _I18N_DIR.glob('*/*.py')
+    if p.stem != '__init__' and p.parent.is_dir() and not p.parent.name.startswith('_')
+]
 
 
 a = Analysis(
@@ -66,6 +76,7 @@ a = Analysis(
         'features.map.default_map.page',
         'scipy.ndimage',
         'scipy.spatial',
+        *_i18n_hiddenimports,
     ],
     hookspath=[],
     hooksconfig={},
