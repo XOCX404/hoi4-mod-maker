@@ -1,18 +1,21 @@
 """
 DowngradeMountainCommand — 一键把"太多山"降级。
 
-做两件事:
+做三件事:
 1. 视觉层 (terrain.bmp): 雪山→山地, 山地→丘陵, 丘陵→平原
-   + 形态学 opening 去掉小于 N 像素的孤立山地斑块(下沉到丘陵)
-2. 属性层 (provincial_terrain dict): 同步降级 per-province 类型
+   + 连通分量清理<50px 的小丘陵斑块→平原
+2. 高度图 (height_map): 同步降一级 (雪-45, 山-35, 丘-30)
+   这保证游戏内 3D 效果和贴图一致, 不会出现"平原贴图但还是高山"的割裂
+3. 属性层 (provincial_terrain dict): 同步降级 per-province 类型
 
-支持 undo (保存旧 terrain_map + 旧 provincial_terrain dict)。
+支持 undo (保存旧 terrain_map + 旧 height_map + 旧 provincial_terrain dict)。
 """
 from __future__ import annotations
 
 import numpy as np
 
 from commands.base import Command
+from data.constants import SEA_LEVEL
 from data.terrain_types import PALETTE_TO_TYPE, TERRAIN_PALETTE_INDEX
 from domain.map_data import MapData
 
@@ -52,6 +55,14 @@ _MIN_PATCH_PIXELS = 50
 # 丘陵类的 palette 索引（降级后要清理的）
 _HILLS_PALETTES = (17, 2, 8)
 
+# 高度图降级量（按原像素所在的 palette 类别）
+# HOI4 高度 band 中心间隔约 40，降一个 band ≈ 减 30-45
+_SNOW_PALETTES = (16, 19, 31)
+_MOUNTAIN_PALETTES = (6, 10, 11, 18, 20, 27)
+_HEIGHT_DROP_SNOW = 45      # 雪山 -45 → 山地高度
+_HEIGHT_DROP_MOUNTAIN = 35  # 山地 -35 → 丘陵高度
+_HEIGHT_DROP_HILLS = 30     # 丘陵 -30 → 平原高度
+
 
 class DowngradeMountainCommand(Command):
     """一键降级山脉。"""
@@ -61,22 +72,27 @@ class DowngradeMountainCommand(Command):
     def __init__(self, map_data: MapData) -> None:
         self._map_data = map_data
         self._old_terrain: np.ndarray | None = None
+        self._old_height: np.ndarray | None = None
         self._old_prov_terrain: dict | None = None
 
     def execute(self) -> None:
-        tm = self._map_data.terrain_map
-        self._old_terrain = tm.copy()
+        # 注意: terrain_map 是 ref, 改回去会污染. 必须先 copy 原始值
+        tm_orig = self._map_data.terrain_map.copy()  # 原始 palette 给高度降级用
+        hm = self._map_data.height_map
+        self._old_terrain = tm_orig
+        self._old_height = hm.copy()
         self._old_prov_terrain = dict(self._map_data.provincial_terrain)
 
         # —— Step 1: 应用 palette 降级 LUT (雪→山, 山→丘, 丘→平) ——
         lut = np.arange(256, dtype=np.uint8)
         for old_idx, new_idx in _PALETTE_DOWNGRADE.items():
             lut[old_idx] = new_idx
-        new_tm = lut[tm]
+        new_tm = lut[tm_orig]
 
         # —— Step 2: 清理降级后的"小丘陵斑块"（原本是散落山地碎点）——
         # 降级后, 原来的小山地变成小丘陵斑块, 我们再把 <50 像素的丘陵斑块降为平原
         hills_mask = np.isin(new_tm, _HILLS_PALETTES)
+        small_patch_mask = np.zeros_like(hills_mask)
         if np.any(hills_mask):
             from scipy.ndimage import label as _label
             labels, n = _label(hills_mask, structure=np.ones((3, 3), dtype=bool))
@@ -85,13 +101,36 @@ class DowngradeMountainCommand(Command):
                 small_labels = np.where(sizes < _MIN_PATCH_PIXELS)[0]
                 small_labels = small_labels[small_labels > 0]  # 排除背景
                 if len(small_labels) > 0:
-                    small_mask = np.isin(labels, small_labels)
-                    new_tm[small_mask] = 0  # 降为平原
+                    small_patch_mask = np.isin(labels, small_labels)
+                    new_tm[small_patch_mask] = 0  # 降为平原
 
         self._map_data.terrain_map[:] = new_tm
 
-        # —— Step 3: 重算 provincial_terrain (从新 terrain_map 反推) ——
-        # 直接降级 dict 里的类型比重算简单, 因为现有 dict 已经是按省份多数票决定
+        # —— Step 3: 高度图降级 (基于原 terrain 的 palette 类别) ——
+        # 这一步至关重要: 只改视觉不改高度, 游戏内 3D 和贴图会割裂。
+        # 用 tm_orig (原始 copy), 不要用 tm (已经被覆盖)
+        new_hm = hm.astype(np.int16)  # 用 int16 避免下溢
+        was_snow = np.isin(tm_orig, _SNOW_PALETTES)
+        was_mountain = np.isin(tm_orig, _MOUNTAIN_PALETTES)
+        was_hills = np.isin(tm_orig, _HILLS_PALETTES)
+        new_hm[was_snow] -= _HEIGHT_DROP_SNOW
+        new_hm[was_mountain] -= _HEIGHT_DROP_MOUNTAIN
+        new_hm[was_hills] -= _HEIGHT_DROP_HILLS
+        # 小斑点(原山地碎点)被清理成平原, 高度也要降到平原级
+        # 注意: 这些像素已经在上面 was_mountain/was_hills 里被降了, 再多降一点推到平原
+        extra_drop = small_patch_mask & (~was_snow)  # 小斑点额外降 15
+        new_hm[extra_drop] -= 15
+        # 守底线: 陆地不能低于 SEA_LEVEL+1
+        land_mask = self._map_data.tile_map == 1  # TILE_LAND
+        np.clip(new_hm, 0, 255, out=new_hm)
+        new_hm_u8 = new_hm.astype(np.uint8)
+        # 陆地像素至少 SEA_LEVEL+1
+        np.maximum(
+            new_hm_u8, SEA_LEVEL + 1, out=new_hm_u8, where=land_mask
+        )
+        self._map_data.height_map[:] = new_hm_u8
+
+        # —— Step 4: 降级 provincial_terrain dict (属性层) ——
         new_prov: dict = {}
         for pid, typ in self._old_prov_terrain.items():
             new_prov[pid] = _TYPE_DOWNGRADE.get(typ, typ)
@@ -101,6 +140,8 @@ class DowngradeMountainCommand(Command):
     def undo(self) -> None:
         if self._old_terrain is not None:
             self._map_data.terrain_map[:] = self._old_terrain
+        if self._old_height is not None:
+            self._map_data.height_map[:] = self._old_height
         if self._old_prov_terrain is not None:
             self._map_data.provincial_terrain.clear()
             self._map_data.provincial_terrain.update(self._old_prov_terrain)

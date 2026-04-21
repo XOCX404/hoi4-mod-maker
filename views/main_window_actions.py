@@ -656,16 +656,22 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         )
 
     def _on_downgrade_mountain(self) -> None:
-        """一键把当前地形图的山脉降一级 (雪→山→丘→平原), 并清理小山地斑块。"""
+        """一键把当前地形图+高度图+属性层的山脉同步降一级。"""
         from commands.map.downgrade_mountain import DowngradeMountainCommand
         map_data = self._project.map_data
         cmd = DowngradeMountainCommand(map_data)
         self._cmd_history.execute(cmd)
+        # 视觉、高度图都变了，两边 canvas 数据都要更新
         self._canvas.terrain_map = map_data.terrain_map
+        self._canvas.height_map = map_data.height_map
         self._canvas._full_render()
         self._project.mark_dirty()
+        # 地形 + 高度图都改了 → 相关 assets 都要重算
         self._project.mark_assets_dirty(
             "map/terrain/colormap_rgb_cityemissivemask_a.dds",
+        )
+        self._project.mark_assets_dirty(
+            "map/terrain/world_normal.bin",
         )
         self._status_info.setText(tr("status_downgrade_done"))
 
