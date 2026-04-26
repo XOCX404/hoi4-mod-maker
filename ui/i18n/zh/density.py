@@ -5,6 +5,8 @@ density — zh 翻译
 """
 
 STRINGS: dict[str, str] = {
+    "density_clear_confirm_title": "清除密度图",
+    "density_clear_confirm_msg": "确定清空所有省份密度数据？此操作无法撤销。",
     "density_btn_clear": "清除密度图",
     "density_btn_clear_tip": "清除密度图，恢复均匀生成",
     "density_hint": "在地图上涂抹省份密度。亮色区域省份多（密集），暗色区域省份少（稀疏）。画完切到「省份」模式生成即可。",

@@ -5,6 +5,8 @@ new_land — zh 翻译
 """
 
 STRINGS: dict[str, str] = {
+    "new_land_generate_confirm_title": "新陆地一键生成",
+    "new_land_generate_confirm_msg": "将为 {n} 像素新陆地区域生成省份（修改 tile_map 和 province_map）。可撤销 (Ctrl+Z)。继续？",
     "new_land_clear": "清空画笔",
     "new_land_clear_tip": "清空已画的新陆地记录（不删除已画的陆地）",
     "new_land_generate": "生成省份",

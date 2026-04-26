@@ -5,6 +5,8 @@ continent — zh 翻译
 """
 
 STRINGS: dict[str, str] = {
+    "continent_remove_confirm_title": "删除大陆",
+    "continent_remove_confirm_msg": "删除大陆「{name}」？属于该大陆的省份会变成无大陆。可撤销 (Ctrl+Z)。",
     "cont_dlg_add": "添加",
     "cont_dlg_add_prompt": "大陆名 (英文, 不含空格):",
     "cont_dlg_add_title": "添加大陆",

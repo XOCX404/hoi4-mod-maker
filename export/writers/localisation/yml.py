@@ -11,13 +11,14 @@ import os
 
 def _state_name_en(s, sid: int) -> str:
     """返回 state 英文 yml 显示名。
-    优先 name_en；如果 name 是纯 ASCII 就回退用它（用户常常只填一个）；否则默认。
+    优先 name_en; 没设就用 name (允许中文 — yml 是 utf-8 BOM, 比 "State X" fallback 强);
+    都没设才默认.
     """
     name_en = (getattr(s, "name_en", "") or "").strip()
     if name_en:
         return name_en
     name = (getattr(s, "name", "") or "").strip()
-    if name and name != f"STATE_{sid}" and name.isascii():
+    if name and name != f"STATE_{sid}":
         return name
     return f"State {sid}"
 
@@ -36,8 +37,8 @@ def _region_name_en(r, rid: int) -> str:
     if name_en:
         return name_en
     name = (getattr(r, "name", "") or "").strip()
-    if name and name != f"STRATEGICREGION_{rid}" and name.isascii():
-        return name
+    if name and name != f"STRATEGICREGION_{rid}":
+        return name  # 中文也用 (yml 是 UTF-8 BOM, HOI4 能正确显示)
     return f"Region {rid}"
 
 
@@ -56,8 +57,8 @@ def _city_name_en(s, pid: int, fallback_en: str, vp_idx: int) -> str:
     if custom_en:
         return custom_en
     custom = (s.vp_names or {}).get(pid, "").strip()
-    if custom and custom.isascii():
-        return custom
+    if custom:
+        return custom  # 中文 VP 名也用
     base = _state_name_en(s, s.id)
     if vp_idx == 0:
         return base
@@ -101,8 +102,12 @@ def write_localisation_simple(mod_name, tag, states, output_dir, region_count=24
 
 
 def _open_yml(dir_path: str, safe: str, topic: str, lang: str):
-    """打开一个按主题分的 yml 文件，已写好 `l_<lang>:` 头。调用方负责 close。"""
-    path = os.path.join(dir_path, f"{safe}_{topic}_l_{lang}.yml")
+    """打开一个按主题分的 yml 文件，已写好 `l_<lang>:` 头。调用方负责 close。
+
+    文件名前缀 `zz_` 确保按字母序排在 vanilla 的 yml (state_names_l_*.yml 等) **之后**,
+    HOI4 同 key 后加载覆盖前加载 → 我们 MOD 的 STATE_X 翻译能稳定盖过 vanilla.
+    """
+    path = os.path.join(dir_path, f"zz_{safe}_{topic}_l_{lang}.yml")
     f = open(path, "w", encoding="utf-8-sig")
     f.write(f"l_{lang}:\n")
     return f
@@ -182,6 +187,9 @@ def write_localisation_full(mod_name, state_mgr, country_mgr, states, output_dir
                     f_leaders.write(f' {tag}_field_marshal_1:0 "{marshal}"\n')
                     f_leaders.write(f' {tag}_general_1:0 "{general}"\n')
                     f_leaders.write(f' {tag}_admiral_1:0 "{admiral}"\n')
+                    sci_label = "Scientist" if is_en else "科学家"
+                    for i in range(1, 5):
+                        f_leaders.write(f' {tag}_scientist_{i}:0 "{cname} {sci_label} {i}"\n')
 
                     for spirit in c.national_spirits:
                         nm = _escape_yml(spirit.name)
@@ -200,6 +208,8 @@ def write_localisation_full(mod_name, state_mgr, country_mgr, states, output_dir
                 f_leaders.write(f' {tag}_field_marshal_1:0 "{cname} Marshal"\n')
                 f_leaders.write(f' {tag}_general_1:0 "{cname} General"\n')
                 f_leaders.write(f' {tag}_admiral_1:0 "{cname} Admiral"\n')
+                for i in range(1, 5):
+                    f_leaders.write(f' {tag}_scientist_{i}:0 "{cname} Scientist {i}"\n')
         finally:
             f_countries.close()
             f_leaders.close()

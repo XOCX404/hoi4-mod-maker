@@ -56,6 +56,7 @@ def pre_export_check_and_fix(
     state_mgr,
     country_mgr,
     continent_mgr=None,
+    strategic_region_mgr=None,
 ) -> ExportReport:
     """导出前自动检测和修复已知问题。
 
@@ -122,6 +123,24 @@ def pre_export_check_and_fix(
         total_collisions = sum(len(pids) - 1 for pids in collisions.values())
         fixed.append(f"修正 {total_collisions} 个省份颜色碰撞")
 
+    # ── 2.5 删除空 State + 压实 ID 连续 ──
+    # 合并 province 留下的空 state 必须删, 删完后 ID 还有 gap → HOI4 statetemplate.cpp:651
+    # 报 'Missing State ID' → AI tick 阶段除零 → 崩溃 (实测 2026-04-25 16:30 案例).
+    # 所以删完必须把剩余 state 重新编号 1..N, 并同步更新 country_mgr 里的 state owner 引用.
+    if state_mgr:
+        empty_sids = state_mgr.find_empty_state_ids()
+        if empty_sids:
+            for sid in empty_sids:
+                state_mgr.delete_state(sid)
+            preview = ", ".join(str(s) for s in empty_sids[:10])
+            more = f" 等共 {len(empty_sids)} 个" if len(empty_sids) > 10 else ""
+            fixed.append(f"删除 {len(empty_sids)} 个空 State (合并省份留下的): {preview}{more}")
+        mapping = state_mgr.compact_ids()
+        if mapping:
+            if country_mgr is not None:
+                country_mgr.remap_state_ids(mapping)
+            fixed.append(f"重新编号 {len(mapping)} 个 State 为连续 ID (HOI4 要求 ID 无 gap)")
+
     # ── 3. 验证所有陆地省份属于 State ──
     if state_mgr and state_mgr.states:
         from data.constants import TILE_LAND
@@ -176,6 +195,37 @@ def pre_export_check_and_fix(
         # continent_mgr 默认所有陆地省份归 index 0，所以一般没问题
         if continent_mgr.count() == 0:
             warnings.append("没有大陆定义，导出时使用默认大陆")
+
+    # ── 5.5 拆分地理不连通的 strategic region ──
+    # HOI4 引擎要求每个 strategic region 内的省份**地理相连** (像素级 4-邻接).
+    # 用户在 UI 手动画 region 或老版本数据可能产生不连通的 region (一个 region
+    # 跨越分离的两块地). HOI4 加载这种 region → 引擎死循环 / 除零崩溃 (实测案例).
+    # 这里强制按连通性拆开, 不连通的部分各自变成独立 region.
+    if strategic_region_mgr is not None and strategic_region_mgr.regions:
+        from domain.managers.strategic_region import _split_connected
+        split_count = 0
+        new_regions_added = 0
+        for old_region in list(strategic_region_mgr.regions.values()):
+            provs = [p for p in old_region.province_ids if 0 < p <= province_count]
+            if len(provs) < 2:
+                continue
+            groups = _split_connected(province_map, set(provs))
+            if len(groups) <= 1:
+                continue  # 已经连通, 不动
+            # 不连通: 第一组留在原 region, 其余组拆成新 region
+            split_count += 1
+            old_region.province_ids = list(groups[0])
+            for extra_group in groups[1:]:
+                new_r = strategic_region_mgr.create_region()
+                new_r.province_ids = list(extra_group)
+                new_r.naval_terrain = old_region.naval_terrain
+                new_r.weather_preset = old_region.weather_preset
+                new_regions_added += 1
+        if split_count > 0:
+            fixed.append(
+                f"拆分 {split_count} 个地理不连通的战略区域 → 新增 {new_regions_added} 个连通区域 "
+                f"(HOI4 要求 region 内省份必须像素相连, 否则崩溃)"
+            )
 
     # ── 6. 验证国家首都 ──
     if country_mgr and country_mgr.countries:

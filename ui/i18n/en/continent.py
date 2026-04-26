@@ -5,6 +5,8 @@ continent — en 翻译
 """
 
 STRINGS: dict[str, str] = {
+    "continent_remove_confirm_title": "Delete Continent",
+    "continent_remove_confirm_msg": "Delete continent \"{name}\"? Provinces in this continent will become continent-less. Undoable (Ctrl+Z).",
     "cont_dlg_add": "Add",
     "cont_dlg_add_prompt": "Continent name (English, no spaces):",
     "cont_dlg_add_title": "Add Continent",

@@ -5,6 +5,8 @@ land — zh 翻译
 """
 
 STRINGS: dict[str, str] = {
+    "smooth_coast_confirm_title": "平滑海岸线",
+    "smooth_coast_confirm_msg": "全图海岸平滑会修改所有海岸线像素，撤销才能恢复。继续？",
     "land_btn_clear_density": "清除",
     "land_btn_fit_map": "铺满地图",
     "land_btn_generate": "生成省份",

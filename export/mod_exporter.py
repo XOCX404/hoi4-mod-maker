@@ -134,7 +134,7 @@ def export_full_mod(
         "map/terrain/colormap_rgb_cityemissivemask_a.dds",
         output_dir, assets, dirty_assets,
         lambda: write_colormap_dds(tile_map, output_dir, settings=colormap_settings,
-                                   terrain_map=terrain_map),
+                                   terrain_map=terrain_map, height_map=heightmap),
     )
 
     # colormap_water_0/1/2.dds 海洋着色贴图 — 三个 MIP 都视作一组
@@ -607,11 +607,21 @@ def _batch_resolve_terrain(province_count, province_map, terrain_map,
 def _write_continent(output_dir, continent_mgr=None):
     d = os.path.join(output_dir, "map")
     os.makedirs(d, exist_ok=True)
-    # 用 continent_mgr 的名字列表; 没有就回退到单一 default_continent
-    if continent_mgr is not None and continent_mgr.count() > 0:
-        names = continent_mgr.names
-    else:
-        names = ["default_continent"]
+    # vanilla 的 portraits / 国家文件 / 部分 modifier 硬编码引用这 7 个大陆名,
+    # MOD 不写就会触发 "unknown continent" → portraitdatabase 空 bucket → 除零崩溃.
+    # 即使用户自定义大陆, 也必须把 vanilla 名字保留, 否则 vanilla 资源加载就崩.
+    VANILLA_CONTINENTS = [
+        "europe", "north_america", "south_america",
+        "australia", "africa", "asia", "middle_east",
+    ]
+    user_names = list(continent_mgr.names) if continent_mgr is not None and continent_mgr.count() > 0 else []
+    # 合并并去重, vanilla 7 个先写以保证它们的 ID (1..7) 与 vanilla 一致
+    seen = set()
+    names = []
+    for n in VANILLA_CONTINENTS + user_names:
+        if n not in seen:
+            seen.add(n)
+            names.append(n)
     with open(os.path.join(d, "continent.txt"), "w") as f:
         f.write("continents = {\n")
         for n in names:

@@ -3,7 +3,7 @@
 从 canvas_widget.py 拆分而来
 """
 from PyQt5.QtWidgets import QGraphicsView
-from PyQt5.QtCore import Qt, QRectF
+from PyQt5.QtCore import Qt, QRectF, QTimer
 from PyQt5.QtGui import QMouseEvent, QWheelEvent
 
 from data.constants import (
@@ -15,6 +15,36 @@ from data.terrain_types import TERRAIN_TYPES, PALETTE_TO_TYPE
 
 class InputMixin:
     """鼠标/键盘事件处理方法。假设 self 拥有 MapCanvas 的全部状态属性。"""
+
+    def _ensure_continuous_brush_timer(self):
+        """懒初始化连续画笔 timer (按住鼠标不动也能持续画)."""
+        if not hasattr(self, "_continuous_brush_timer"):
+            self._continuous_brush_timer = QTimer(self)
+            self._continuous_brush_timer.setInterval(50)  # 50ms ≈ 20Hz, 流畅且不卡
+            self._continuous_brush_timer.timeout.connect(self._on_continuous_brush_tick)
+            self._continuous_brush_pos: tuple[int, int] | None = None
+
+    def _on_continuous_brush_tick(self):
+        """timer 触发: 在最后记录的位置补画一笔 (鼠标不动时使用)."""
+        pos = getattr(self, "_continuous_brush_pos", None)
+        if pos is None or not self._is_drawing:
+            return
+        sx, sy = pos
+        if 0 <= sx < self.map_w and 0 <= sy < self.map_h:
+            self._paint_at(sx, sy)
+
+    def _start_continuous_brush(self, sx: int, sy: int) -> None:
+        """开始连续画笔 (按住时一直触发)."""
+        self._ensure_continuous_brush_timer()
+        self._continuous_brush_pos = (sx, sy)
+        self._continuous_brush_timer.start()
+
+    def _stop_continuous_brush(self) -> None:
+        """停止连续画笔 (鼠标释放时调用)."""
+        timer = getattr(self, "_continuous_brush_timer", None)
+        if timer is not None:
+            timer.stop()
+        self._continuous_brush_pos = None
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -168,16 +198,20 @@ class InputMixin:
                         event.accept()
                         return
                     if pid > 0:
-                        # 地形画笔模式：逐像素绘制
+                        # 地形画笔模式：逐像素绘制 + 按住鼠标不动持续画
                         if self._display_mode == "terrain" and self._terrain_brush_mode:
                             self._is_drawing = True
                             self.stroke_started.emit()
                             self._paint_at(sx, sy)
+                            self._start_continuous_brush(sx, sy)
                             event.accept()
                             return
                         self.province_clicked.emit(pid)
-                        # 可拖拽分配的模式：开始拖拽
-                        if self._display_mode in ("state", "country", "strategic_region", "continent"):
+                        # 可拖拽分配的模式: 开始拖拽 (controller 内部按 assign_mode 决定要不要写)
+                        if self._display_mode in (
+                            "state", "country", "strategic_region", "continent",
+                            "province_terrain",
+                        ):
                             self._assign_dragging = True
                             self._assign_drag_seen = {pid}
                 event.accept()
@@ -271,6 +305,9 @@ class InputMixin:
         if 0 <= sx < self.map_w and 0 <= sy < self.map_h:
             self.mouse_moved.emit(sx, sy)
             self._update_brush_cursor(sx, sy)
+            # 更新连续画笔的位置 (鼠标动了就用最新位置, 鼠标停了 timer 用记住的位置补画)
+            if getattr(self, "_continuous_brush_pos", None) is not None:
+                self._continuous_brush_pos = (sx, sy)
         else:
             self._brush_cursor.setVisible(False)
 
@@ -485,6 +522,7 @@ class InputMixin:
             if self._is_drawing:
                 self._is_drawing = False
                 self._last_draw_pos = None  # 清除插值起点
+                self._stop_continuous_brush()  # 鼠标释放停掉连续画笔 timer
 
                 # 山脉画线释放 → 发射信号给 MainWindow 处理
                 if getattr(self, '_ridge_drawing', False):

@@ -31,6 +31,7 @@ class StatePage(QWidget):
     batch_create_state_toggled = pyqtSignal(bool)
     batch_create_state_confirmed = pyqtSignal()
     assign_mode_changed = pyqtSignal(bool)
+    state_delete_requested = pyqtSignal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -67,19 +68,20 @@ class StatePage(QWidget):
 
         self._assign_chk = QCheckBox(tr("state_assign_drag_label"))
         self._assign_chk.setChecked(False)
+        self._assign_chk.setToolTip(tr("state_assign_drag_label") + " — 再次点击退出")
         self._assign_chk.setStyleSheet(
             "QCheckBox { color: #f0f0ff; font-size: 13px; font-weight: 600; padding: 6px; }"
             "QCheckBox:checked { color: #86efac; }"
         )
-        self._assign_chk.toggled.connect(self.assign_mode_changed)
+        self._assign_chk.toggled.connect(self._on_assign_toggled)
         el.addWidget(self._assign_chk)
 
         batch_row = QHBoxLayout()
         self._batch_btn = QPushButton(tr("state_batch_select_btn_short"))
         self._batch_btn.setCheckable(True)
         self._batch_btn.setStyleSheet(_PRIMARY_BTN_STYLE)
-        self._batch_btn.setToolTip(tr("state_batch_select_tip"))
-        self._batch_btn.toggled.connect(self.batch_create_state_toggled.emit)
+        self._batch_btn.setToolTip(tr("state_batch_select_tip") + "（再次点击退出）")
+        self._batch_btn.toggled.connect(self._on_batch_toggled)
         batch_row.addWidget(self._batch_btn)
 
         self._batch_confirm_btn = QPushButton(tr("state_batch_confirm_btn_short"))
@@ -143,6 +145,18 @@ class StatePage(QWidget):
         detail_btn.clicked.connect(self._on_state_detail_clicked)
         il.addWidget(detail_btn)
 
+        # 删除当前州按钮 (危险操作, 用红色按钮 + 二次确认)
+        delete_btn = QPushButton(tr("state_delete_btn"))
+        delete_btn.setStyleSheet(
+            "QPushButton { background: #b91c1c; color: white; padding: 6px;"
+            " border-radius: 4px; font-weight: 600; }"
+            "QPushButton:hover { background: #dc2626; }"
+            "QPushButton:disabled { background: #4b5563; color: #9ca3af; }"
+        )
+        delete_btn.clicked.connect(self._on_state_delete_clicked)
+        il.addWidget(delete_btn)
+        self._state_delete_btn = delete_btn
+
         lay.addWidget(info_box)
 
         lay.addStretch()
@@ -151,6 +165,22 @@ class StatePage(QWidget):
     def _on_auto_states(self) -> None:
         per_state = self._state_per_spin.value()
         self.auto_states_requested.emit(per_state)
+
+    def _on_assign_toggled(self, checked: bool) -> None:
+        """分配模式切换：文字变激活态 + 通知 controller。"""
+        self._assign_chk.setText(
+            tr("state_assign_drag_label_active") if checked
+            else tr("state_assign_drag_label")
+        )
+        self.assign_mode_changed.emit(checked)
+
+    def _on_batch_toggled(self, checked: bool) -> None:
+        """框选建州切换：文字变激活态 + 通知 controller。"""
+        self._batch_btn.setText(
+            tr("state_batch_select_btn_short_active") if checked
+            else tr("state_batch_select_btn_short")
+        )
+        self.batch_create_state_toggled.emit(checked)
 
     def _on_state_list_clicked(self, row: int) -> None:
         item = self._state_list.item(row)
@@ -186,6 +216,18 @@ class StatePage(QWidget):
     def _on_state_detail_clicked(self) -> None:
         if self._current_state_id > 0:
             self.state_detail_requested.emit(self._current_state_id)
+
+    def _on_state_delete_clicked(self) -> None:
+        if self._current_state_id <= 0:
+            return
+        from PyQt5.QtWidgets import QMessageBox
+        ret = QMessageBox.question(
+            self, tr("state_delete_confirm_title"),
+            tr("state_delete_confirm_msg").format(sid=self._current_state_id),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if ret == QMessageBox.Yes:
+            self.state_delete_requested.emit(self._current_state_id)
 
     # ── 公共更新方法 ──
     def update_state_list(self, states: list[tuple[int, str, int]]) -> None:

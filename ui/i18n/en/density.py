@@ -5,6 +5,8 @@ density — en 翻译
 """
 
 STRINGS: dict[str, str] = {
+    "density_clear_confirm_title": "Clear Density Map",
+    "density_clear_confirm_msg": "Clear all province density data? This action cannot be undone.",
     "density_btn_clear": "Clear Density Map",
     "density_btn_clear_tip": "Clear density map, restore uniform generation",
     "density_hint": "Paint province density on the map. Bright areas = more provinces (dense), dark areas = fewer (sparse). Switch to 'Province' mode to generate.",

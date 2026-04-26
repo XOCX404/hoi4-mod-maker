@@ -11,6 +11,8 @@ STRINGS: dict[str, str] = {
     "terrain_mountain_default": "默认",
     "terrain_mountain_more": "多山",
     "terrain_label_downgrade_strength": "降级强度",
+    "downgrade_mountain_confirm_title": "降级山脉",
+    "downgrade_mountain_confirm_msg": "将降级整张地图的山地和雪山（同时改 terrain + height + 视觉）。可撤销 (Ctrl+Z)。继续？",
     "terrain_btn_downgrade": "一键降级山脉（整张图）",
     "terrain_btn_downgrade_tip": "对整张地形图：按上方「降级强度」只把最高的那部分山地/雪山降级。\n强度 50% 只降 band 上半段, 100% 全都降。Ctrl+Z 撤销。",
     "terrain_btn_downgrade_region": "选区降级（套索选区）",
@@ -51,6 +53,8 @@ STRINGS: dict[str, str] = {
 
 💡 此模式只改 gameplay 数据，不动 terrain.bmp 视觉。""",
     "pterrain_section_types": "地形类型",
+    "auto_terrain_confirm_title": "自动生成地形",
+    "auto_terrain_confirm_msg": "将根据当前高度图重新生成整张地形 (terrain.bmp)。\n现有地形会被覆盖（Ctrl+Z 可撤销）。继续？",
     "terrain_auto_top_btn": "🌋 基于高度图自动生成地形",
     "terrain_auto_top_section": "🎨 一键生成地形（推荐）",
     "terrain_auto_top_tip": "根据高度图自动生成 + 同步属性层。调完高度就点这个。",

@@ -98,6 +98,15 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
             self._status_info.setText(tr("status_no_new_land"))
             return
 
+        # 防呆: 二次确认 (会修改 tile_map + province_map, 撤销才能恢复)
+        ret = QMessageBox.question(
+            self, tr("new_land_generate_confirm_title"),
+            tr("new_land_generate_confirm_msg").format(n=n),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            return
+
         self._status_info.setText(f"正在为 {n} 像素新陆地生成省份...")
         QApplication.processEvents()
 
@@ -418,6 +427,15 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
 
         # 检查画布是否有选区（变换工具框选的区域）
         sel = getattr(self._canvas, '_selection_rect', None)
+        # 防呆: 全图模式才弹窗 (选区是用户已经画了, 意图明确)
+        if not sel:
+            ret = QMessageBox.question(
+                self, tr("smooth_coast_confirm_title"),
+                tr("smooth_coast_confirm_msg"),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if ret != QMessageBox.Yes:
+                return
         if sel:
             x0, y0, x1, y1 = sel
             # 转换为整数像素坐标 (region 参数是 y0, x0, y1, x1)
@@ -437,6 +455,14 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
 
     def _on_density_clear(self) -> None:
         """清除密度图，恢复均匀。密度遮罩保持当前显隐状态。"""
+        # 防呆: 二次确认 (清空数据无法撤销)
+        ret = QMessageBox.question(
+            self, tr("density_clear_confirm_title"),
+            tr("density_clear_confirm_msg"),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            return
         self._project.map_data.density_map = None
         # 刷新遮罩内容（density_map=None 时 overlay 会自动隐藏）
         self._canvas._render_density_overlay()
@@ -599,6 +625,17 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         ctrl: CountryController = self._controllers["country"]
         ctrl.create_country(tag, name, color, party)
 
+    def _on_country_highlight(self, tag: str) -> None:
+        """切换选中国家时, 把该国 RGB 传给 canvas, country renderer 会高亮该国像素."""
+        if not tag:
+            self._canvas.set_highlight_country(None)
+            return
+        country = self._project.country_mgr.get_country(tag)
+        if country is None:
+            self._canvas.set_highlight_country(None)
+            return
+        self._canvas.set_highlight_country(tuple(country.color))
+
     def _on_country_color_change(self, tag: str) -> None:
         country = self._project.country_mgr.get_country(tag)
         if not country:
@@ -619,11 +656,16 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         QMessageBox.information(self, tr("dlg_river_validate_title"), "\n".join(warnings))
 
     def _on_auto_terrain(self) -> None:
-        from services.terrain_service import (
-            smart_auto_terrain, TerrainGenConfig,
-            compute_provincial_terrain_from_bmp,
-        )
+        from services.terrain_service import smart_auto_terrain, TerrainGenConfig
         from commands.map.generate_terrain import GenerateTerrainCommand
+        # 防呆: 二次确认 (会覆盖整张 terrain.bmp, 撤销才能恢复)
+        ret = QMessageBox.question(
+            self, tr("auto_terrain_confirm_title"),
+            tr("auto_terrain_confirm_msg"),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            return
         self._status_info.setText(tr("status_auto_terrain"))
         self.repaint()
         map_data = self._project.map_data
@@ -637,27 +679,28 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         )
         cmd = GenerateTerrainCommand(map_data, new_terrain)
         self._cmd_history.execute(cmd)
-        # 单向同步：视觉 terrain.bmp → 属性 provincial_terrain dict
-        # 每个 land province 按多数地形自动推断属性，用户后续可在"地形(属性)"tab 微调
-        new_dict = compute_provincial_terrain_from_bmp(
-            map_data.terrain_map, map_data.province_map, map_data.tile_map
-        )
-        map_data.provincial_terrain.clear()
-        map_data.provincial_terrain.update(new_dict)
+        # 不再同步覆盖 provincial_terrain (省份属性是用户精挑细选的, 视觉自动生成不该改它).
+        # 想从视觉同步到属性 → 切到 provincial_terrain mode 用专门的同步按钮.
         self._project.mark_dirty()
         # 自动生成地形 → colormap 要重生
         self._project.mark_assets_dirty(
             "map/terrain/colormap_rgb_cityemissivemask_a.dds",
         )
-        # 通知 canvas 地形数据已变 (触发重新渲染)
         self._canvas.terrain_map = map_data.terrain_map
-        self._status_info.setText(
-            tr("status_auto_terrain_done") + tr("status_auto_terrain_synced", len(new_dict))
-        )
+        self._status_info.setText(tr("status_auto_terrain_done"))
 
     def _on_downgrade_mountain(self, mask=None) -> None:
         """降级山脉 (全图或选区)。mask=None 时全图, 否则只在 mask 内。"""
         from commands.map.downgrade_mountain import DowngradeMountainCommand
+        # 防呆: 全图模式才弹窗 (选区是用户已经画了套索, 意图明确)
+        if mask is None:
+            ret = QMessageBox.question(
+                self, tr("downgrade_mountain_confirm_title"),
+                tr("downgrade_mountain_confirm_msg"),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if ret != QMessageBox.Yes:
+                return
         map_data = self._project.map_data
         strength = self._tool_panel._terrain_page.get_downgrade_strength()
         cmd = DowngradeMountainCommand(map_data, mask=mask, strength=strength)
@@ -681,6 +724,24 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
             self._status_info.setText(tr("status_downgrade_lasso_mode"))
         else:
             self._canvas._refine_lasso_item.setVisible(False)
+
+    def _on_terrain_underlay_toggle(self, enabled: bool) -> None:
+        """国家/州模式下的地形底图开关 — 画边界时参考海岸/山脉。"""
+        self._canvas.set_terrain_underlay_visible(bool(enabled))
+
+    def _on_terrain_underlay_opacity(self, value: int) -> None:
+        """滑块 0..100 → 0.0..1.0 不透明度。"""
+        self._canvas.set_terrain_underlay_opacity(value / 100.0)
+
+    def _on_terrain_underlay_source(self, source: str) -> None:
+        """切换地形底图源: 'height' (彩色高度图) 或 'terrain' (地形属性 provincial_terrain)."""
+        if source == "terrain":
+            # 确保 provincial_terrain RGB 已构建 (用户可能从未进过 province_terrain mode)
+            if getattr(self._canvas, "_provincial_terrain_color_rgb", None) is None:
+                app_ctrl = self._controllers.get("app")
+                if app_ctrl is not None and hasattr(app_ctrl, "_refresh_provincial_terrain_colors"):
+                    app_ctrl._refresh_provincial_terrain_colors()
+        self._canvas.set_terrain_underlay_source(source)
 
     def _on_terrain_context_overlay(self, enabled: bool) -> None:
         """地形视图下显示/隐藏 国家色 + 州边界 叠加层。
@@ -747,6 +808,14 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
 
     def _on_auto_height(self) -> None:
         from services.terrain_service import smart_auto_height
+        # 防呆: 二次确认 (覆盖整张高度图)
+        ret = QMessageBox.question(
+            self, tr("auto_height_confirm_title"),
+            tr("auto_height_confirm_msg"),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            return
         self._status_info.setText(tr("status_auto_height"))
         self.repaint()
         config = None
@@ -766,6 +835,39 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
         )
         self._status_info.setText(tr("status_auto_height_done"))
 
+    def _on_height_from_terrain(self) -> None:
+        """从 terrain 反推 height_map (覆盖现有). 优先用省份属性 (provincial_terrain),
+        fallback 到像素装饰 (terrain_map). HOI4 实际游戏用省份属性."""
+        from services.terrain_service import auto_height_from_terrain
+        map_data = self._project.map_data
+        has_prov_terrain = bool(map_data.provincial_terrain)
+        has_terrain = map_data.terrain_map is not None and int(map_data.terrain_map.max()) > 0
+        if not has_prov_terrain and not has_terrain:
+            QMessageBox.warning(self, tr("dlg_warning"), tr("height_from_terrain_no_terrain"))
+            return
+        ret = QMessageBox.question(
+            self, tr("height_from_terrain_confirm_title"),
+            tr("height_from_terrain_confirm_msg"),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            return
+        self._status_info.setText(tr("status_height_from_terrain"))
+        self.repaint()
+        new_height = auto_height_from_terrain(
+            map_data.terrain_map, map_data.tile_map,
+            provincial_terrain=map_data.provincial_terrain,
+            province_map=map_data.province_map,
+        )
+        map_data.height_map[:] = new_height
+        self._canvas.height_map = map_data.height_map
+        self._project.mark_dirty()
+        self._project.mark_assets_dirty(
+            "map/world_normal.bmp",
+            "map/terrain/colormap_rgb_cityemissivemask_a.dds",
+        )
+        self._status_info.setText(tr("status_height_from_terrain_done"))
+
     def _on_smooth_height(self) -> None:
         from services.terrain_service import smooth_height
         self._canvas.height_map = smooth_height(
@@ -780,6 +882,14 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
             "", "Images (*.bmp *.png *.jpg *.tif);;All Files (*)"
         )
         if not path:
+            return
+        # 防呆: 二次确认 (覆盖整张高度图, 建议先保存项目)
+        ret = QMessageBox.question(
+            self, tr("import_heightmap_confirm_title"),
+            tr("import_heightmap_confirm_msg"),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
             return
         try:
             from PIL import Image
@@ -1151,6 +1261,14 @@ class MainWindowActionsMixin(MainWindowFileOpsMixin):
             self._refresh_dm_tree_list()
 
     def _on_dm_tree_reset(self) -> None:
+        # 防呆: 二次确认 (重置 tree 设置)
+        ret = QMessageBox.question(
+            self, tr("default_map_reset_confirm_title"),
+            tr("default_map_reset_confirm_msg"),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            return
         ctrl: DefaultMapController = self._controllers["default_map"]
         ctrl.reset_tree_indices()
         self._refresh_dm_tree_list()

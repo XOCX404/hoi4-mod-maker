@@ -380,9 +380,18 @@ class ModVerifier:
     def _check_countries(self):
         """检查国家文件"""
         self._log("[11/16] 检查国家...")
-        tag_file = self._path("common", "country_tags", "00_countries.txt")
-        if not os.path.exists(tag_file):
-            self.errors.append("缺少 common/country_tags/00_countries.txt")
+        # 兼容新旧两种 TAG 注册文件名：新版用 02_worldtest_countries.txt 避免覆盖 vanilla
+        ct_dir = self._path("common", "country_tags")
+        tag_file = None
+        for candidate in ("02_worldtest_countries.txt", "00_countries.txt"):
+            p = os.path.join(ct_dir, candidate)
+            if os.path.exists(p):
+                tag_file = p
+                break
+        if tag_file is None:
+            self.errors.append(
+                "缺少 common/country_tags/02_worldtest_countries.txt（或旧版 00_countries.txt）"
+            )
             return
 
         with open(tag_file, "r") as f:
@@ -390,7 +399,7 @@ class ModVerifier:
 
         self._country_tags = re.findall(r'^([A-Z]{3})\s*=', content, re.MULTILINE)
         if not self._country_tags:
-            self.errors.append("00_countries.txt: 没有找到任何国家TAG")
+            self.errors.append(f"{os.path.basename(tag_file)}: 没有找到任何国家TAG")
             return
 
         for tag in self._country_tags:
@@ -398,12 +407,9 @@ class ModVerifier:
             if not self._exists("common", "countries", f"{tag}.txt"):
                 self.errors.append(f"缺少 common/countries/{tag}.txt")
 
-            # history/countries/TAG - *.txt
-            hc_dir = self._path("history", "countries")
-            if os.path.isdir(hc_dir):
-                found = any(f.startswith(tag) for f in os.listdir(hc_dir))
-                if not found:
-                    self.errors.append(f"缺少 history/countries/{tag} - *.txt")
+            # history/countries/TAG.txt — 必须与 country_tags 注册路径严格一致
+            if not self._exists("history", "countries", f"{tag}.txt"):
+                self.errors.append(f"缺少 history/countries/{tag}.txt")
 
             # history/units/TAG_1936.txt
             if not self._exists("history", "units", f"{tag}_1936.txt"):

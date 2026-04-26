@@ -30,6 +30,7 @@ class CountryPage(QWidget):
     country_selected = pyqtSignal(str)
     country_property_changed = pyqtSignal(str, str, object)
     country_color_change_requested = pyqtSignal(str)
+    country_delete_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -128,6 +129,17 @@ class CountryPage(QWidget):
         cap_row.addWidget(self._country_capital_label)
         il.addLayout(cap_row)
 
+        # 删除当前国家按钮 (危险操作, 红色 + 二次确认)
+        delete_btn = QPushButton(tr("country_delete_btn"))
+        delete_btn.setStyleSheet(
+            "QPushButton { background: #b91c1c; color: white; padding: 6px;"
+            " border-radius: 4px; font-weight: 600; }"
+            "QPushButton:hover { background: #dc2626; }"
+            "QPushButton:disabled { background: #4b5563; color: #9ca3af; }"
+        )
+        delete_btn.clicked.connect(self._on_country_delete_clicked)
+        il.addWidget(delete_btn)
+
         lay.addWidget(info_box)
 
         # 提示
@@ -145,6 +157,19 @@ class CountryPage(QWidget):
             tag = item.data(Qt.UserRole)
             if tag is not None:
                 self.country_selected.emit(tag)
+
+    def _on_country_delete_clicked(self) -> None:
+        tag = self._country_tag_label.text()
+        if not tag or tag == "—":
+            return
+        from PyQt5.QtWidgets import QMessageBox
+        ret = QMessageBox.question(
+            self, tr("country_delete_confirm_title"),
+            tr("country_delete_confirm_msg").format(tag=tag),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if ret == QMessageBox.Yes:
+            self.country_delete_requested.emit(tag)
 
     def _on_country_name_changed(self) -> None:
         tag = self._country_tag_label.text()

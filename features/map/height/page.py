@@ -24,6 +24,7 @@ class HeightPage(QWidget):
     # 输出信号
     height_value_changed = pyqtSignal(int)
     auto_height_requested = pyqtSignal()
+    height_from_terrain_requested = pyqtSignal()
     import_heightmap_requested = pyqtSignal()
     ridge_mode_toggled = pyqtSignal(bool)       # 山脉画线模式开关
     ridge_peak_changed = pyqtSignal(int)         # 山峰高度
@@ -74,6 +75,23 @@ class HeightPage(QWidget):
         auto_top_tip.setStyleSheet(f"color: {_DIM}; font-size: 12px; padding: 4px 2px;")
         auto_top_tip.setWordWrap(True)
         auto_top_layout.addWidget(auto_top_tip)
+
+        # 从地形反推高度 (用户已经画好地形, 但高度图丑时一键重建)
+        from_terrain_btn = QPushButton(tr("height_from_terrain_btn"))
+        from_terrain_btn.setMinimumHeight(36)
+        from_terrain_btn.setStyleSheet(
+            "QPushButton { background: #2563eb; color: white; border: none;"
+            " border-radius: 6px; font-size: 13px; font-weight: 600; padding: 6px; }"
+            "QPushButton:hover { background: #3b82f6; }"
+        )
+        from_terrain_btn.setToolTip(tr("height_from_terrain_tooltip"))
+        from_terrain_btn.clicked.connect(self.height_from_terrain_requested.emit)
+        auto_top_layout.addWidget(from_terrain_btn)
+
+        from_terrain_tip = QLabel(tr("height_from_terrain_tip"))
+        from_terrain_tip.setStyleSheet(f"color: {_DIM}; font-size: 12px; padding: 2px 2px;")
+        from_terrain_tip.setWordWrap(True)
+        auto_top_layout.addWidget(from_terrain_tip)
 
         lay.addWidget(auto_top_box)
 

@@ -205,18 +205,19 @@ class StrategicRegionManager:
         self,
         province_map: np.ndarray,
         tile_map: np.ndarray,
-        state_mgr=None,
+        state_mgr=None,        # 保留参数兼容旧调用方, 但不再使用
         grid_cols: int = 6,
         grid_rows: int = 4,
     ) -> None:
         """自动生成战略区域 (覆盖现有数据).
 
-        **关键规则**: 每个 region 的省份必须**地理相连**（HOI4 引擎要求）.
-        所以每一步分组后, 都要再按像素连通性拆分, 不连通的部分拆成多个 region.
+        策略 — 纯网格 + 海陆分开 + 连通拆分 (vanilla 风格的大块 region).
+        旧版本按 state 一对一生成 region (590+ 次连通分量计算) 在大地图上极慢
+        且产生过多碎 region; 新算法只跑 grid_cols*grid_rows*2 次连通分量,
+        生成 vanilla 风格的大块 region (典型 30-100 个).
 
-        策略:
-        - 有 state_mgr: state 的陆地省按连通性合并进 region (非连通 state 拆多个)
-        - 海/湖省 + 孤儿陆地: 网格粗分 → 每格按连通性细拆
+        **铁律**: 每个 region 内省份必须地理 4-邻接连通, 且海陆不能混 — 否则
+        HOI4 加载时引擎死循环 / 除零崩溃.
         """
         from data.constants import TILE_LAND
 
@@ -227,7 +228,7 @@ class StrategicRegionManager:
         if province_count == 0:
             return
 
-        # 用实际 province_map 尺寸（不要硬编码 MAP_WIDTH/MAP_HEIGHT，项目可能用不同分辨率）
+        # 用实际 province_map 尺寸 (项目可能不是原版分辨率)
         MAP_HEIGHT, MAP_WIDTH = province_map.shape[0], province_map.shape[1]
 
         flat_pm = province_map.ravel()
@@ -242,64 +243,32 @@ class StrategicRegionManager:
         land_count = np.bincount(flat_pm, weights=land_flat, minlength=n)
         is_land_per_pid = land_count * 2 > pid_count
 
-        def _emit_connected(pids: list[int], naval: str = "") -> None:
-            """把 pids 按连通性拆成若干 region（不连通 → 多个 region）。"""
-            if not pids:
-                return
-            for group in _split_connected(province_map, set(pids)):
+        # 按质心把 province 分到 grid_rows×grid_cols 个网格
+        cell_h = MAP_HEIGHT / max(1, grid_rows)
+        cell_w = MAP_WIDTH / max(1, grid_cols)
+        buckets: dict[int, list[int]] = {}
+        for pid in range(1, province_count + 1):
+            if pid_count[pid] == 0:
+                continue
+            cy = sum_y[pid] / pid_count[pid]
+            cx = sum_x[pid] / pid_count[pid]
+            row = min(int(cy / cell_h), grid_rows - 1)
+            col = min(int(cx / cell_w), grid_cols - 1)
+            key = row * grid_cols + col
+            buckets.setdefault(key, []).append(pid)
+
+        # 每格分海陆, 各自按连通性拆成若干 region
+        for provs in buckets.values():
+            sea_provs = [p for p in provs if not is_land_per_pid[p]]
+            land_provs = [p for p in provs if is_land_per_pid[p]]
+            for group in _split_connected(province_map, set(sea_provs)):
                 r = self.create_region()
                 r.province_ids = list(group)
-                r.naval_terrain = naval
-
-        if state_mgr is not None and state_mgr.states:
-            assigned: set[int] = set()
-            # 每个 state → 按连通性拆成 1 个或多个 region
-            for sid in sorted(state_mgr.states.keys()):
-                s = state_mgr.states[sid]
-                provs = [p for p in s.provinces if pid_count[p] > 0]
-                if not provs:
-                    continue
-                _emit_connected(provs, naval="")
-                assigned.update(provs)
-
-            # 剩余省份 (海/湖 + 孤儿陆地) — 网格粗分
-            cell_h = MAP_HEIGHT / max(1, grid_rows)
-            cell_w = MAP_WIDTH / max(1, grid_cols)
-            buckets: dict[int, list[int]] = {}
-            for pid in range(1, province_count + 1):
-                if pid in assigned or pid_count[pid] == 0:
-                    continue
-                cy = sum_y[pid] / pid_count[pid]
-                cx = sum_x[pid] / pid_count[pid]
-                row = min(int(cy / cell_h), grid_rows - 1)
-                col = min(int(cx / cell_w), grid_cols - 1)
-                key = row * grid_cols + col
-                buckets.setdefault(key, []).append(pid)
-            # 每格再按连通性拆 + 海陆分开（避免混到一起）
-            for provs in buckets.values():
-                sea_provs = [p for p in provs if not is_land_per_pid[p]]
-                land_provs = [p for p in provs if is_land_per_pid[p]]
-                _emit_connected(sea_provs, naval="ocean")
-                _emit_connected(land_provs, naval="")
-        else:
-            # 纯网格: 同样按网格 → 连通性拆分
-            cell_h = MAP_HEIGHT / grid_rows
-            cell_w = MAP_WIDTH / grid_cols
-            buckets: dict[int, list[int]] = {}
-            for pid in range(1, province_count + 1):
-                if pid_count[pid] == 0:
-                    continue
-                cy = sum_y[pid] / pid_count[pid]
-                cx = sum_x[pid] / pid_count[pid]
-                row = min(int(cy / cell_h), grid_rows - 1)
-                col = min(int(cx / cell_w), grid_cols - 1)
-                key = row * grid_cols + col
-                buckets.setdefault(key, []).append(pid)
-            for provs in buckets.values():
-                sea_provs = [p for p in provs if not is_land_per_pid[p]]
-                land_provs = [p for p in provs if is_land_per_pid[p]]
-                _emit_connected(sea_provs, naval="ocean")
-                _emit_connected(land_provs, naval="")
+                r.naval_terrain = "ocean"
+            for group in _split_connected(province_map, set(land_provs)):
+                r = self.create_region()
+                r.province_ids = list(group)
+                r.naval_terrain = ""
 
         # 自动分配 weather preset (按质心纬度)
         for r in self._regions.values():

@@ -373,7 +373,8 @@ def write_country_files(output_dir: str, tag: str = "AAA") -> None:
     # country_tags
     tags_dir = os.path.join(output_dir, "common", "country_tags")
     os.makedirs(tags_dir, exist_ok=True)
-    with open(os.path.join(tags_dir, "00_countries.txt"), "w") as f:
+    # 用 02_worldtest_ 前缀避免覆盖 vanilla 00_countries.txt（country_tags 不再 replace）
+    with open(os.path.join(tags_dir, "02_worldtest_countries.txt"), "w") as f:
         f.write(f'{tag} = "countries/{tag}.txt"\n')
 
     # country 文件

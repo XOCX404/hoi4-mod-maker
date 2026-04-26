@@ -1,9 +1,37 @@
 """版本信息 — 每次发版更新这里"""
 
-VERSION = "1.0.0"
-VERSION_DATE = "2026-04-18"
+VERSION = "1.1.0"
+VERSION_DATE = "2026-04-26"
 
 CHANGELOG = {
+    "1.1.0": {
+        "date": "2026-04-26",
+        "changes": [
+            "🚨 紧急稳定性更新 — 适配 HOI4 1.18 (Case Green)",
+            "崩溃修复: continent.txt 自动写 vanilla 7 大陆 (修 portraits 除零崩溃)",
+            "崩溃修复: division names 改 for_countries={ } (default=yes 是非法字段)",
+            "崩溃修复: state ID 自动压实 1..N 连续 (修 Missing State ID)",
+            "崩溃修复: character 文件 UTF-8 BOM + name 用 ID (不再写中文导致 GBK 编码崩)",
+            "崩溃修复: history/countries 文件名 = {TAG}.txt (PHYSFS 严格匹配)",
+            "崩溃修复: REPLACE_PATHS 加 common/on_actions (vanilla 引用已删 decisions 触发 access violation)",
+            "崩溃修复: 战略区域不连通自动拆分",
+            "性能: 战略区域生成快 13× (590 次连通分量 → 48 次)",
+            "新功能: 🗑 删除 State / Country UI (含二次确认 + Ctrl+Z 撤销)",
+            "新功能: 📐 从地形反推高度图 (用距离场算法, mountain 山尖到 240)",
+            "新功能: 国家边框高亮 (默认所有国家白边, 选中红边)",
+            "新功能: 地形底图源切换 (高度图 / 省份地形属性) - View 菜单",
+            "新功能: provincial_terrain 拖拽分配 (按住鼠标拖过批量改)",
+            "新功能: terrain 笔刷长按持续画 (按住不动也画)",
+            "新功能: coal 资源 (vanilla 1.18 完整 7 种战略资源)",
+            "防呆: 9 个破坏性操作加二次确认弹窗 (auto_terrain/auto_height/downgrade/import/new_land/smooth_coast/density_clear/default_map_reset/continent_remove)",
+            "解耦: 改 terrain 视觉不再自动改 provincial_terrain (省份属性是用户精挑细选的)",
+            "美化: 海洋距离场渐变 (近海青绿 → 远海深蓝)",
+            "美化: 陆地高度调亮 + 雪山 (>200 渐变白) + 海岸沙滩 (4px 浅黄)",
+            "美化: terrain 颜色饱和度提升",
+            "i18n: yml 文件名加 zz_ 前缀确保覆盖 vanilla state 翻译",
+            "i18n: yml 写入支持中文 (去掉 isascii 限制)",
+        ],
+    },
     "1.0.0": {
         "date": "2026-04-18",
         "changes": [

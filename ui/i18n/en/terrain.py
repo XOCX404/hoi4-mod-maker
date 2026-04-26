@@ -11,6 +11,8 @@ STRINGS: dict[str, str] = {
     "terrain_mountain_default": "default",
     "terrain_mountain_more": "more",
     "terrain_label_downgrade_strength": "Downgrade Strength",
+    "downgrade_mountain_confirm_title": "Downgrade Mountains",
+    "downgrade_mountain_confirm_msg": "Will downgrade all mountains and snow caps map-wide (terrain + height + visual). Undoable (Ctrl+Z). Continue?",
     "terrain_btn_downgrade": "Downgrade Mountains (Whole Map)",
     "terrain_btn_downgrade_tip": "Downgrades only the highest pixels per band (per 'Downgrade Strength' slider).\n50%% = upper-half of each band, 100%% = whole band. Ctrl+Z to undo.",
     "terrain_btn_downgrade_region": "Downgrade Region (Lasso)",
@@ -51,6 +53,8 @@ To edit: check <b>'Assign Mode'</b> below, then click province.
 
 💡 This mode only changes gameplay data, not terrain.bmp visual.""",
     "pterrain_section_types": "Terrain Types",
+    "auto_terrain_confirm_title": "Auto-Generate Terrain",
+    "auto_terrain_confirm_msg": "Will regenerate the entire terrain (terrain.bmp) from current heightmap.\nExisting terrain will be overwritten (Ctrl+Z to undo). Continue?",
     "terrain_auto_top_btn": "🌋 Auto-Generate Terrain from Heightmap",
     "terrain_auto_top_section": "🎨 One-Click Terrain (Recommended)",
     "terrain_auto_top_tip": "Auto-generate + sync attributes. Click after editing heightmap.",

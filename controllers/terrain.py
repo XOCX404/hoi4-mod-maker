@@ -69,25 +69,13 @@ class TerrainController(BaseController):
         if not terrain_changes:
             return
 
-        # 查 provincial terrain type
-        from data.terrain_types import PALETTE_TO_TYPE, TERRAIN_TYPES
-        ptype = PALETTE_TO_TYPE.get(self.current_terrain_index)
-        prov_changes = {pid: ptype} if ptype else {}
-
-        # 高度联动
-        height_changes = {}
-        if ptype and ptype in TERRAIN_TYPES:
-            target_h = TERRAIN_TYPES[ptype].height_base
-            height_map = map_data.height_map
-            for i in range(len(ys)):
-                y, x = int(ys[i]), int(xs[i])
-                if int(height_map[y, x]) != target_h:
-                    height_changes[(y, x)] = target_h
-
+        # 不再自动改 provincial_terrain (省份属性是用户精挑细选的, 视觉绘画不该覆盖).
+        # 高度也不再联动 — 高度独立于地形视觉, 用户用专门的"从地形反推高度"功能.
+        # 想改省份属性 → 切到 provincial_terrain mode 手动指定.
         cmd = PaintTerrainCommand(
             map_data, terrain_changes,
-            provincial_terrain_changes=prov_changes,
-            height_changes=height_changes,
+            provincial_terrain_changes=None,
+            height_changes=None,
         )
         self.history.execute(cmd)
         self.project.mark_dirty()
@@ -202,30 +190,12 @@ class TerrainController(BaseController):
                 province_changes[pid] = Counter()
             province_changes[pid][new_terr_idx] += 1
 
-        # 对每个被涂的 province，结合"已存在 + 新涂"算多数地形
-        prov_terrain_changes: dict[int, str] = {}
-        for pid, painted_counter in province_changes.items():
-            # 全省扫描一次（涂完后的状态）
-            mask = province_map == pid
-            terr_in_prov = terrain_map[mask]
-            # 加上即将写入的 stroke_changes（terrain_map 还没更新）
-            for (y, x), new_idx in self._stroke_changes.items():
-                if int(province_map[y, x]) == pid:
-                    # 旧值在 terr_in_prov 里，但即将被覆盖，简化：用 painted_counter 主导
-                    pass
-            # 直接用：如果用户涂了某 province ≥ 30% 像素，就用涂的多数；否则保持旧
-            painted_total = sum(painted_counter.values())
-            prov_total = int(mask.sum())
-            if prov_total > 0 and painted_total / prov_total >= 0.3:
-                # 涂了足够多 → 用涂的多数地形
-                top_idx = painted_counter.most_common(1)[0][0]
-                ptype = PALETTE_TO_TYPE.get(int(top_idx))
-                if ptype:
-                    prov_terrain_changes[pid] = ptype
-
+        # 不再根据 brush 涂的像素自动改 provincial_terrain
+        # (用户的省份属性是精挑细选的, 视觉笔刷不该覆盖).
+        # 想改省份属性 → 切到 provincial_terrain mode 手动指定.
         cmd = PaintTerrainCommand(
             map_data, self._stroke_changes,
-            provincial_terrain_changes=prov_terrain_changes if prov_terrain_changes else None,
+            provincial_terrain_changes=None,
         )
         self.history.execute(cmd)
         self._stroke_changes = {}

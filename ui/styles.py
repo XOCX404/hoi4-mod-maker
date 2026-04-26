@@ -93,6 +93,14 @@ _PRIMARY_BTN_STYLE = f"""
     QPushButton:hover {{
         background: {_ACCENT_HOVER};
     }}
+    QPushButton:checked {{
+        background: #f97316;
+        color: white;
+        border: 2px solid #fb923c;
+    }}
+    QPushButton:checked:hover {{
+        background: #fb923c;
+    }}
 """
 
 _SECONDARY_BTN_STYLE = f"""

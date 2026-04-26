@@ -9,16 +9,17 @@ from export.writers.gfx.flags import write_country_flags
 
 
 def write_country_colors(tag, rgb, output_dir):
-    """生成 common/countries/colors.txt — 地图上国家的颜色
+    """生成 common/countries/zz_worldtest_colors.txt — 地图上国家的颜色
 
-    HOI4 用这个文件定义国家在地图上的边框/填充颜色。
-    如果缺失，国家颜色可能异常或默认为灰色。
+    用 zz_worldtest_ 前缀避免覆盖 vanilla 的同名 colors.txt（1220 行，定义所有
+    vanilla TAG 的颜色）。MOD 不再 replace common/countries 后，若文件名相同
+    会让 vanilla 颜色全部丢失 → 渲染管线除零崩溃。
     """
     d = os.path.join(output_dir, "common", "countries")
     os.makedirs(d, exist_ok=True)
     r, g, b = rgb
-    # 追加模式：如果 colors.txt 已存在（多国家情况），累加
-    path = os.path.join(d, "colors.txt")
+    # 追加模式：如果文件已存在（多国家情况），累加
+    path = os.path.join(d, "zz_worldtest_colors.txt")
     mode = "a" if os.path.exists(path) else "w"
     with open(path, mode, encoding="utf-8") as f:
         if mode == "w":
@@ -67,15 +68,21 @@ def write_country_characters(tag, output_dir, country_name="Fantasy"):
     """
     d = os.path.join(output_dir, "common", "characters")
     os.makedirs(d, exist_ok=True)
-    # 用 TAG.txt 命名避免和原版文件冲突
-    with open(os.path.join(d, f"{tag}.txt"), "w") as f:
+    # name 字段用 character ID 作为 localisation key (vanilla 做法 `name=CHI_chiang_kaishek`),
+    # 不能直接写 country_name 字符串 — country_name 可能含中文 + open() 默认 GBK + 无 BOM,
+    # 三重 bug 叠加导致 HOI4 parse 失败 → 引擎自动生成 character 时除零崩溃.
+    # 文件用 UTF-8 BOM 编码与 vanilla character 文件保持一致 (HOI4 parser 对 BOM 容忍).
+    # 显示名走 localisation/*_l_<lang>.yml (yml.py 已写 leader/marshal/general/admiral key,
+    # scientist 这里也保留 key, yml 没翻译就显示 raw key, 不会崩).
+    with open(os.path.join(d, f"{tag}.txt"), "w", encoding="utf-8") as f:
+        f.write("﻿")  # UTF-8 BOM
         f.write("characters = {\n\n")
 
-        # 1. 国家领袖（4种意识形态子类型各一个，对齐 vanilla 最小格式，
-        #    去掉 id=-1 和 expire — 1.17 这俩字段会让 AI 初始化校验失败）
+        # 1. 国家领袖 (4种意识形态子类型各一个, 对齐 vanilla 最小格式;
+        #    1.17 去掉 id=-1 和 expire 字段以避免 AI 初始化校验失败)
         for ideo in ("despotism", "conservatism", "nazism", "marxism"):
             f.write(f"\t{tag}_leader_{ideo} = {{\n")
-            f.write(f'\t\tname = "{country_name} Leader"\n')
+            f.write(f"\t\tname = {tag}_leader_{ideo}\n")
             f.write("\t\tportraits = {\n")
             f.write("\t\t\tcivilian = { large = GFX_Portrait_Europe_Generic_1 }\n")
             f.write("\t\t}\n")
@@ -87,7 +94,7 @@ def write_country_characters(tag, output_dir, country_name="Fantasy"):
 
         # 2. 元帅
         f.write(f"\t{tag}_field_marshal_1 = {{\n")
-        f.write(f'\t\tname = "{country_name} Marshal"\n')
+        f.write(f"\t\tname = {tag}_field_marshal_1\n")
         f.write("\t\tportraits = {\n")
         f.write("\t\t\tarmy = { large = GFX_Portrait_Europe_Generic_land_1 }\n")
         f.write("\t\t}\n")
@@ -103,7 +110,7 @@ def write_country_characters(tag, output_dir, country_name="Fantasy"):
 
         # 3. 将军
         f.write(f"\t{tag}_general_1 = {{\n")
-        f.write(f'\t\tname = "{country_name} General"\n')
+        f.write(f"\t\tname = {tag}_general_1\n")
         f.write("\t\tportraits = {\n")
         f.write("\t\t\tarmy = { large = GFX_Portrait_Europe_Generic_land_2 }\n")
         f.write("\t\t}\n")
@@ -119,7 +126,7 @@ def write_country_characters(tag, output_dir, country_name="Fantasy"):
 
         # 4. 海军将领
         f.write(f"\t{tag}_admiral_1 = {{\n")
-        f.write(f'\t\tname = "{country_name} Admiral"\n')
+        f.write(f"\t\tname = {tag}_admiral_1\n")
         f.write("\t\tportraits = {\n")
         f.write("\t\t\tarmy = { large = GFX_Portrait_Europe_Generic_navy_1 }\n")
         f.write("\t\t}\n")
@@ -133,11 +140,11 @@ def write_country_characters(tag, output_dir, country_name="Fantasy"):
         f.write("\t\t}\n")
         f.write("\t}\n\n")
 
-        # 5. 科学家（4种专业，避免自动生成失败）
+        # 5. 科学家 (4种专业, 避免自动生成失败)
         specializations = ["air", "industry", "naval", "army"]
         for i, spec in enumerate(specializations, 1):
             f.write(f"\t{tag}_scientist_{i} = {{\n")
-            f.write(f'\t\tname = "{country_name} Scientist {i}"\n')
+            f.write(f"\t\tname = {tag}_scientist_{i}\n")
             f.write("\t\tportraits = {\n")
             f.write("\t\t\tcivilian = { large = GFX_Portrait_Europe_Generic_1 }\n")
             f.write("\t\t}\n")
@@ -153,38 +160,16 @@ def write_country_characters(tag, output_dir, country_name="Fantasy"):
 
 
 def write_dynamic_countries(output_dir, count=75):
-    """生成 dynamic countries 用于内战、傀儡等系统占位。
+    """dynamic countries 占位 — 由 vanilla 提供，MOD 不再重复生成。
 
-    HOI4 wiki: "If the mod doesn't have enough dynamic countries defined, the game
-    will crash if there is a sufficient amount of non-dynamic countries..."
+    旧实现写了 D01-D75 的 country_tags 注册 + country 文件。但自从 REPLACE_PATHS
+    移除 common/country_tags 和 common/countries（避免 vanilla gfx TAG 查找失败崩溃）后，
+    MOD 和 vanilla 的 D01-D75 会重名 → "Duplicate Country Tag" → 加载阶段除零崩。
 
-    【EaW 验证做法】每个 dynamic tag 必须有【独立】的 country file（D01.txt～D75.txt），
-    不能所有 tag 共享一个 Dynamic.txt —— 那会让引擎在 AI/划分命名组时把 80 个 tag
-    视为同一国家，触发 "Multiple name groups for D69" 和 naval goal 重复添加循环，
-    最终 ACCESS_VIOLATION 崩溃。EaW 用 75 个，我们对齐。
+    vanilla 自带 D01-D75 dynamic countries，数量足够内战/傀儡使用，MOD 直接复用即可。
+    保留本函数空实现是为了兼容所有调用点（write_country / write_countries_from_mgr 等）。
     """
-    ct_dir = os.path.join(output_dir, "common", "country_tags")
-    co_dir = os.path.join(output_dir, "common", "countries")
-    os.makedirs(ct_dir, exist_ok=True)
-    os.makedirs(co_dir, exist_ok=True)
-
-    # 每个 dynamic tag 一个独立文件（EaW 格式：仅 2 行）
-    # 用简单哈希生成不同颜色，避免所有 D 国颜色一样
-    for i in range(1, count + 1):
-        tag = f"D{i:02d}"
-        r = (i * 37) % 200 + 40
-        g = (i * 73) % 200 + 40
-        b = (i * 113) % 200 + 40
-        with open(os.path.join(co_dir, f"{tag}.txt"), "w") as f:
-            f.write("use_legacy_ai_pp_spend = yes\n")
-            f.write(f"color = {{ {r} {g} {b} }}\n")
-
-    # dynamic_tags = yes 标记后的 tag 都是临时内战国
-    with open(os.path.join(ct_dir, "zz_dynamic_countries.txt"), "w") as f:
-        f.write("dynamic_tags = yes\n\n")
-        for i in range(1, count + 1):
-            tag = f"D{i:02d}"
-            f.write(f'{tag} = "countries/{tag}.txt"\n')
+    return
 
 
 def write_country(tag, capital_state_id, output_dir):
@@ -197,7 +182,7 @@ def write_country(tag, capital_state_id, output_dir):
     # 生成 80 个 dynamic countries（HOI4 强制要求，否则崩溃）
     write_dynamic_countries(output_dir)
 
-    with open(os.path.join(output_dir, "common", "country_tags", "00_countries.txt"), "w") as f:
+    with open(os.path.join(output_dir, "common", "country_tags", "02_worldtest_countries.txt"), "w") as f:
         f.write(f'{tag} = "countries/{tag}.txt"\n')
 
     with open(os.path.join(output_dir, "common", "countries", f"{tag}.txt"), "w") as f:
@@ -258,7 +243,7 @@ def write_countries_from_mgr(country_mgr, output_dir, states):
     write_dynamic_countries(output_dir)
 
     # country_tags
-    with open(os.path.join(output_dir, "common", "country_tags", "00_countries.txt"), "w") as f:
+    with open(os.path.join(output_dir, "common", "country_tags", "02_worldtest_countries.txt"), "w") as f:
         for tag in country_mgr.countries:
             f.write(f'{tag} = "countries/{tag}.txt"\n')
 
@@ -299,9 +284,11 @@ def write_countries_from_mgr(country_mgr, output_dir, states):
             scaled[ruling] = scaled.get(ruling, 0) + diff
             pops = scaled
 
-        # 安全文件名
-        safe_name = c.name.replace("/", "_").replace("\\", "_").replace(":", "_").replace('"', "")
-        with open(os.path.join(output_dir, "history", "countries", f"{tag} - {safe_name}.txt"), "w") as f:
+        # 文件名必须与 country_tags/02_worldtest_countries.txt 里的 "countries/{tag}.txt"
+        # 完全一致, 否则 HOI4 (PHYSFS) 找不到文件 → 国家加载失败 → 引用该 TAG 时除零崩溃.
+        # vanilla 用 "TAG - English_Name.txt" 是因为名字全 ASCII 引擎能模糊匹配; 我们的国家
+        # 名常含中文, PHYSFS 在 Windows 加载非 ASCII 路径失败, 必须严格匹配 = 纯 TAG 命名.
+        with open(os.path.join(output_dir, "history", "countries", f"{tag}.txt"), "w", encoding="utf-8") as f:
             f.write(f"capital = {capital_state}\n")
             f.write(f'oob = "{tag}_1936"\n')
             f.write("set_research_slots = 3\n")

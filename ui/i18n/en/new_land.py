@@ -5,6 +5,8 @@ new_land — en 翻译
 """
 
 STRINGS: dict[str, str] = {
+    "new_land_generate_confirm_title": "Generate New Land",
+    "new_land_generate_confirm_msg": "Will generate provinces for {n} pixels of new land (modifies tile_map and province_map). Undoable (Ctrl+Z). Continue?",
     "new_land_clear": "Clear Brush",
     "new_land_clear_tip": "Clear painted land records (does not delete the land)",
     "new_land_generate": "Generate Provinces",

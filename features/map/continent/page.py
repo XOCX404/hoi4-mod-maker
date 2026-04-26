@@ -105,5 +105,15 @@ class ContinentPage(QWidget):
 
     def _on_remove_continent(self) -> None:
         row = self._continent_list.currentRow()
-        if row >= 0:
+        if row < 0:
+            return
+        from PyQt5.QtWidgets import QMessageBox
+        item = self._continent_list.currentItem()
+        name = item.text() if item else f"#{row}"
+        ret = QMessageBox.question(
+            self, tr("continent_remove_confirm_title"),
+            tr("continent_remove_confirm_msg").format(name=name),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if ret == QMessageBox.Yes:
             self.continent_remove_requested.emit(row)

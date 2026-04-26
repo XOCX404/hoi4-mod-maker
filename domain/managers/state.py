@@ -117,6 +117,52 @@ class StateManager:
         self._province_to_state.clear()
         self._next_id = 1
 
+    def delete_state(self, state_id: int) -> bool:
+        """删除一个 State; 返回是否实际删除. 反向索引里指向该 State 的省份也清掉."""
+        if state_id not in self._states:
+            return False
+        for pid in list(self._states[state_id].provinces):
+            if self._province_to_state.get(pid) == state_id:
+                self._province_to_state.pop(pid, None)
+        del self._states[state_id]
+        return True
+
+    def find_empty_state_ids(self) -> list[int]:
+        """返回所有 provinces 列表为空的 State ID — 通常是合并省份后留下的孤儿."""
+        return [sid for sid, st in self._states.items() if not st.provinces]
+
+    def compact_ids(self) -> dict[int, int]:
+        """把 state ID 重新编号为 1..N 连续 (按原 ID 升序保持相对顺序).
+
+        HOI4 statetemplate.cpp 要求 state ID 连续, 任何 gap 都会触发 'Missing State ID'
+        进而引发除零崩溃. 合并 province 删空 state 后必须调用这个方法压实 ID.
+
+        返回 {old_id: new_id} 映射; 如果已经连续返回空 dict.
+        StateData.id 字段同步更新; 默认名 'STATE_{old}' 会同步改成 'STATE_{new}'.
+        """
+        old_ids = sorted(self._states.keys())
+        if not old_ids:
+            return {}
+        if old_ids == list(range(1, len(old_ids) + 1)):
+            return {}
+
+        mapping = {old: new for new, old in enumerate(old_ids, start=1)}
+        new_states: dict[int, StateData] = {}
+        for old, state in self._states.items():
+            new_id = mapping[old]
+            if state.name == f"STATE_{old}":
+                state.name = f"STATE_{new_id}"
+            state.id = new_id
+            new_states[new_id] = state
+        self._states = new_states
+        self._province_to_state = {
+            pid: mapping[old_sid]
+            for pid, old_sid in self._province_to_state.items()
+            if old_sid in mapping
+        }
+        self._next_id = len(self._states) + 1
+        return mapping
+
     def auto_split(
         self,
         province_map: np.ndarray,

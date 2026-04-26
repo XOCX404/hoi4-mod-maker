@@ -17,12 +17,18 @@ from data.constants import REPLACE_PATHS, DEFAULT_HOI4_PATH
 
 
 def _build_division_names_with_phantoms() -> str:
-    """生成 names_divisions 文件内容: 符合原版格式的最小 generic fallback。"""
+    """生成 names_divisions 文件内容: 符合原版格式的最小 generic fallback。
+
+    HOI4 的 division names 没有 `default = yes` 字段 (参见 wiki Namelist modding).
+    之前用 `default = yes` 会导致整文件 parse 失败 → 所有国家无师命名 → AI 部署师崩溃.
+    现改为 `for_countries = { }` 与本文件其他 names_* 保持一致 — HOI4 接受空列表,
+    虽然该 group 不会被任何国家激活, 但 parse 通过, 不再触发崩溃.
+    """
     return (
         'GENERIC_INF_01 = {\n'
         '\tname = "Infantry Division"\n'
         '\n'
-        '\tfor_countries = { AAA }\n'
+        '\tfor_countries = { }\n'
         '\n'
         '\tcan_use = { always = yes }\n'
         '\n'
@@ -56,6 +62,15 @@ def write_replace_path_dirs(output_dir: str) -> None:
         if os.path.isdir(d) and not os.listdir(d):
             with open(os.path.join(d, "00_placeholder.txt"), "w") as f:
                 f.write("# Empty\n")
+
+    # common/on_actions: 必须 replace (vanilla 引用已删 decisions 会 access violation 崩溃),
+    # 但完全空目录 HOI4 找不到也可能崩, 写一个最小合法 on_actions 块占位.
+    on_act_dir = os.path.join(output_dir, "common", "on_actions")
+    os.makedirs(on_act_dir, exist_ok=True)
+    if not os.listdir(on_act_dir):
+        with open(os.path.join(on_act_dir, "00_placeholder_on_actions.txt"), "w") as f:
+            f.write("# Placeholder — vanilla on_actions 引用已删 decisions, 必须空块代替\n")
+            f.write("on_actions = {\n}\n")
 
     ai_full_copy_dirs = (
         "common/ai_strategy",

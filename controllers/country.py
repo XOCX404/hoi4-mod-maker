@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from controllers.base import BaseController
 from commands.country.assign import AssignStateToCountryCommand
 from commands.country.create import CreateCountryCommand
+from commands.country.delete import DeleteCountryCommand
 
 if TYPE_CHECKING:
     from model.project import Project
@@ -130,6 +131,20 @@ class CountryController(BaseController):
             self.event_bus.emit(
                 "country_changed", tag=tag, action="selected",
             )
+
+    def delete_country(self, tag: str) -> None:
+        """删除国家. 同时清理所有指向该国的 state owner. 走 command 支持 undo."""
+        country_mgr = self.project.country_mgr
+        if not tag or country_mgr.get_country(tag) is None:
+            self._emit_status(f"国家 {tag} 不存在")
+            return
+        cmd = DeleteCountryCommand(country_mgr, tag)
+        self.history.execute(cmd)
+        if self.selected_country_tag == tag:
+            self.selected_country_tag = ""
+        self.project.mark_dirty()
+        self.event_bus.emit("country_changed", tag=tag, action="deleted")
+        self._emit_status(f"已删除国家 {tag}")
 
     def change_property(self, tag: str, prop: str, value: str) -> None:
         """修改国家属性。"""

@@ -273,6 +273,7 @@ class ToolPanel(QWidget):
     terrain_brush_size_changed = pyqtSignal(int)
     terrain_soft_edge_changed = pyqtSignal(bool)
     auto_height_requested = pyqtSignal()
+    height_from_terrain_requested = pyqtSignal()
     import_heightmap_requested = pyqtSignal()
     height_brush_mode_changed = pyqtSignal(str)
     height_brush_size_changed = pyqtSignal(int)
@@ -299,9 +300,11 @@ class ToolPanel(QWidget):
     batch_create_state_toggled = pyqtSignal(bool)
     batch_create_state_confirmed = pyqtSignal()
     state_assign_mode_changed = pyqtSignal(bool)
+    state_delete_requested = pyqtSignal(int)
     create_country_requested = pyqtSignal()
     quick_create_country_requested = pyqtSignal(str, str, str)
     country_selected = pyqtSignal(str)
+    country_delete_requested = pyqtSignal(str)
     country_property_changed = pyqtSignal(str, str, object)
     country_color_change_requested = pyqtSignal(str)
 
@@ -545,6 +548,7 @@ class ToolPanel(QWidget):
         p = self._height_page
         p.height_value_changed.connect(self.height_value_changed)
         p.auto_height_requested.connect(self.auto_height_requested)
+        p.height_from_terrain_requested.connect(self.height_from_terrain_requested)
         p.import_heightmap_requested.connect(self.import_heightmap_requested)
         p.ridge_mode_toggled.connect(self.ridge_mode_toggled)
         p.ridge_peak_changed.connect(self.ridge_peak_changed)
@@ -573,6 +577,7 @@ class ToolPanel(QWidget):
         p.batch_create_state_toggled.connect(self.batch_create_state_toggled)
         p.batch_create_state_confirmed.connect(self.batch_create_state_confirmed)
         p.assign_mode_changed.connect(self.state_assign_mode_changed)
+        p.state_delete_requested.connect(self.state_delete_requested)
 
     def _connect_country_signals(self) -> None:
         p = self._country_page
@@ -581,6 +586,7 @@ class ToolPanel(QWidget):
         p.country_selected.connect(self.country_selected)
         p.country_property_changed.connect(self.country_property_changed)
         p.country_color_change_requested.connect(self.country_color_change_requested)
+        p.country_delete_requested.connect(self.country_delete_requested)
 
     def _connect_continent_signals(self) -> None:
         p = self._continent_page

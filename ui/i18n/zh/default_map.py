@@ -5,6 +5,8 @@ default_map — zh 翻译
 """
 
 STRINGS: dict[str, str] = {
+    "default_map_reset_confirm_title": "恢复默认 tree 设置",
+    "default_map_reset_confirm_msg": "将 tree 调色板索引恢复到默认值？",
     "defmap_add_btn": "添加",
     "defmap_delete_btn": "删除",
     "defmap_reset_btn": "恢复默认",

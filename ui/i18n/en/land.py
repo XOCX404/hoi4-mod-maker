@@ -5,6 +5,8 @@ land — en 翻译
 """
 
 STRINGS: dict[str, str] = {
+    "smooth_coast_confirm_title": "Smooth Coastline",
+    "smooth_coast_confirm_msg": "Whole-map coast smoothing will modify all coastal pixels. Undoable only via Ctrl+Z. Continue?",
     "land_btn_clear_density": "Clear",
     "land_btn_fit_map": "Fit to Map",
     "land_btn_generate": "Generate Provinces",

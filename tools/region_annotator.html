@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>HOI4 地形区域标注器</title>
+<style>
+* { box-sizing: border-box; }
+body { font-family: sans-serif; margin: 10px; background: #222; color: #ddd; }
+h1 { font-size: 16px; margin: 0 0 8px 0; }
+.toolbar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
+button { padding: 5px 9px; cursor: pointer; background: #444; color: #eee; border: 1px solid #666; border-radius: 4px; font-size: 13px; }
+button:hover { background: #555; }
+button.active { background: #6c6cf0; border-color: #9090ff; color: #fff; font-weight: bold; }
+button.danger { background: #aa3333; }
+input[type=number] { width: 60px; padding: 3px; background: #333; color: #eee; border: 1px solid #666; }
+.stage-wrap {
+  position: relative;
+  background: #111;
+  overflow: auto;
+  max-width: calc(100vw - 380px);
+  max-height: calc(100vh - 160px);
+  border: 1px solid #333;
+}
+.stage {
+  position: relative;
+  /* transform: scale() 由 JS 控制 */
+  transform-origin: 0 0;
+}
+.stage img, .stage canvas { position: absolute; top: 0; left: 0; display: block; }
+.stage img { z-index: 0; pointer-events: none; }  /* 背景图, 不接收事件 */
+.stage canvas { z-index: 1; cursor: crosshair; }  /* 上层 canvas 接收点击 */
+.panel { display: flex; gap: 12px; }
+.side { width: 360px; flex-shrink: 0; background: #2a2a2a; padding: 10px; border-radius: 6px; max-height: calc(100vh - 160px); overflow-y: auto; }
+.region { background: #333; padding: 6px; margin: 4px 0; border-radius: 4px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.region .swatch { width: 14px; height: 14px; display: inline-block; border-radius: 2px; border: 1px solid #000; flex-shrink: 0; }
+.region button { padding: 2px 6px; font-size: 11px; }
+textarea { width: 100%; min-height: 120px; background: #111; color: #0f0; border: 1px solid #444; font-family: monospace; font-size: 11px; padding: 6px; }
+.hint { color: #888; font-size: 11px; margin: 4px 0; line-height: 1.4; }
+kbd { background: #444; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 11px; }
+.status { color: #9f9; font-size: 12px; padding: 4px; }
+</style>
+</head>
+<body>
+
+<h1>HOI4 地形区域标注器</h1>
+
+<div class="toolbar">
+  <span style="color:#aaa">笔刷：</span>
+  <button data-type="mountain" class="type-btn" style="background:#7C877D">山地</button>
+  <button data-type="snow" class="type-btn" style="background:#E0E0E8; color:#000">雪山</button>
+  <button data-type="hills" class="type-btn" style="background:#B8AA46; color:#000">丘陵</button>
+  <button data-type="plains" class="type-btn active" style="background:#5AAA50">平原</button>
+  <button data-type="forest" class="type-btn" style="background:#396B35">森林</button>
+  <button data-type="desert" class="type-btn" style="background:#C07E3A">沙漠</button>
+  <button data-type="downgrade" class="type-btn" style="background:#666">降级</button>
+  <button data-type="sea" class="type-btn" style="background:#2850A0">海洋</button>
+  <button data-type="lake" class="type-btn" style="background:#6080B0">湖泊</button>
+</div>
+
+<div class="toolbar">
+  <span style="color:#aaa">画法：</span>
+  <button id="mode-polygon" class="mode-btn active">闭合多边形</button>
+  <button id="mode-line" class="mode-btn">线段（→山脊）</button>
+  <label style="font-size:12px">线宽: <input type="number" id="line-width" value="80" min="10" max="400">px</label>
+  <span style="margin-left:10px; color:#aaa">|  缩放：</span>
+  <button id="zoom-out">−</button>
+  <span id="zoom-label" style="color:#9f9; min-width:40px; text-align:center">100%</span>
+  <button id="zoom-in">+</button>
+  <button id="zoom-reset">重置</button>
+  <span style="margin-left:10px; color:#aaa">|</span>
+  <button id="undo-pt">撤销点</button>
+  <button id="finish">完成当前 (Enter)</button>
+  <button id="cancel">取消 (Esc)</button>
+</div>
+
+<div class="hint">
+  👉 <kbd>左键</kbd>加点 · <kbd>Enter</kbd>闭合 · <kbd>Esc</kbd>取消 · <kbd>Ctrl+Z</kbd>撤销点 ·
+  <kbd>Ctrl+滚轮</kbd>缩放 · 滚动条拖动查看
+</div>
+
+<div class="panel">
+  <div class="stage-wrap" id="stage-wrap">
+    <div class="stage" id="stage" style="width: 1408px; height: 512px;">
+      <img id="preview" src="preview.png" width="1408" height="512">
+      <canvas id="canvas" width="1408" height="512"></canvas>
+    </div>
+  </div>
+  <div class="side">
+    <div class="status" id="status">就绪. 点一下地图试试.</div>
+    <h3 style="margin:8px 0 4px 0;">已标记区域 (<span id="count">0</span>)</h3>
+    <div id="regions"></div>
+    <hr>
+    <h3 style="margin:8px 0;">导出 JSON</h3>
+    <button id="copy-json">复制到剪贴板</button>
+    <button id="clear-all" class="danger">清空全部</button>
+    <textarea id="json-out" readonly></textarea>
+    <hr>
+    <h3 style="margin:8px 0;">用法</h3>
+    <div class="hint">
+      1. 选笔刷类型<br>
+      2. 在地图上点几个点<br>
+      3. <kbd>Enter</kbd> 闭合<br>
+      4. 点"复制到剪贴板"<br>
+      5. 粘贴给 Claude
+    </div>
+  </div>
+</div>
+
+<script>
+const SCALE = 4; // 预览图是真图 1/4
+const canvas = document.getElementById('canvas');
+const stage = document.getElementById('stage');
+const stageWrap = document.getElementById('stage-wrap');
+const statusEl = document.getElementById('status');
+const ctx = canvas.getContext('2d');
+let regions = [];
+let currentPoints = [];
+let currentType = 'plains';
+let currentMode = 'polygon';
+let zoom = 1.0;
+
+const TYPE_STYLE = {
+  mountain:  { fill: 'rgba(124,135,125,0.45)', stroke: '#7C877D' },
+  snow:      { fill: 'rgba(240,240,248,0.55)', stroke: '#FFFFFF' },
+  hills:     { fill: 'rgba(184,170,70,0.5)',  stroke: '#B8AA46' },
+  plains:    { fill: 'rgba(90,170,80,0.4)',   stroke: '#5AAA50' },
+  forest:    { fill: 'rgba(57,107,53,0.5)',   stroke: '#396B35' },
+  desert:    { fill: 'rgba(192,126,58,0.5)',  stroke: '#C07E3A' },
+  downgrade: { fill: 'rgba(100,100,100,0.4)', stroke: '#AAAAAA' },
+  sea:       { fill: 'rgba(40,80,160,0.5)',   stroke: '#3060C0' },
+  lake:      { fill: 'rgba(96,128,176,0.5)',  stroke: '#6080B0' },
+};
+
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (const r of regions) {
+    const style = TYPE_STYLE[r.type];
+    ctx.fillStyle = style.fill;
+    ctx.strokeStyle = style.stroke;
+    ctx.lineWidth = 2;
+    if (r.mode === 'line') {
+      ctx.beginPath();
+      for (let i = 0; i < r.points.length; i++) {
+        const [x, y] = r.points[i];
+        if (i === 0) ctx.moveTo(x / SCALE, y / SCALE);
+        else ctx.lineTo(x / SCALE, y / SCALE);
+      }
+      ctx.lineWidth = Math.max(3, (r.width || 80) / SCALE);
+      ctx.stroke();
+      ctx.lineWidth = 2;
+    } else {
+      ctx.beginPath();
+      for (let i = 0; i < r.points.length; i++) {
+        const [x, y] = r.points[i];
+        if (i === 0) ctx.moveTo(x / SCALE, y / SCALE);
+        else ctx.lineTo(x / SCALE, y / SCALE);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+  if (currentPoints.length > 0) {
+    const style = TYPE_STYLE[currentType];
+    ctx.strokeStyle = style.stroke;
+    ctx.fillStyle = style.fill;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < currentPoints.length; i++) {
+      const [x, y] = currentPoints[i];
+      if (i === 0) ctx.moveTo(x / SCALE, y / SCALE);
+      else ctx.lineTo(x / SCALE, y / SCALE);
+    }
+    ctx.stroke();
+    for (const [x, y] of currentPoints) {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(x / SCALE, y / SCALE, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  updateSidebar();
+}
+
+function updateSidebar() {
+  const list = document.getElementById('regions');
+  list.innerHTML = '';
+  for (let i = 0; i < regions.length; i++) {
+    const r = regions[i];
+    const style = TYPE_STYLE[r.type];
+    const div = document.createElement('div');
+    div.className = 'region';
+    div.innerHTML = `
+      <span>
+        <span class="swatch" style="background:${style.stroke}"></span>
+        #${i + 1} ${r.type} (${r.mode}, ${r.points.length}pt)
+      </span>
+      <button data-idx="${i}" class="del-btn danger">删</button>
+    `;
+    list.appendChild(div);
+  }
+  document.getElementById('count').textContent = regions.length;
+  document.getElementById('json-out').value = JSON.stringify(
+    { regions: regions, map_width: 5632, map_height: 2048 },
+    null, 2
+  );
+  document.querySelectorAll('.del-btn').forEach(btn => {
+    btn.onclick = () => {
+      regions.splice(parseInt(btn.dataset.idx), 1);
+      render();
+    };
+  });
+}
+
+// —— 点击: 用 offsetX/Y 而不是 clientX/Y, 避免缩放/滚动问题 ——
+canvas.addEventListener('click', (e) => {
+  // offsetX/Y 是相对 canvas 的逻辑坐标 (不受 CSS scale 影响), 已经是 canvas 的 1408x512 坐标系
+  const rect = canvas.getBoundingClientRect();
+  // rect 的宽高是视觉尺寸 (1408 * zoom), canvas 内部坐标是 1408
+  const cx = (e.clientX - rect.left) / rect.width * canvas.width;
+  const cy = (e.clientY - rect.top) / rect.height * canvas.height;
+  // 转真图坐标
+  const x = Math.round(cx * SCALE);
+  const y = Math.round(cy * SCALE);
+  currentPoints.push([x, y]);
+  statusEl.textContent = `加点: (${x}, ${y})  当前 ${currentPoints.length} 点`;
+  render();
+});
+
+function finishCurrent() {
+  if (currentPoints.length === 0) {
+    statusEl.textContent = '没有点可以闭合';
+    return;
+  }
+  const minPts = currentMode === 'line' ? 2 : 3;
+  if (currentPoints.length < minPts) {
+    statusEl.textContent = `至少 ${minPts} 个点 (当前 ${currentPoints.length})`;
+    return;
+  }
+  const region = {
+    type: currentType,
+    mode: currentMode,
+    points: currentPoints.slice(),
+  };
+  if (currentMode === 'line') {
+    region.width = parseInt(document.getElementById('line-width').value);
+  }
+  regions.push(region);
+  statusEl.textContent = `✓ 完成 ${currentType} 区域 (${currentPoints.length}点)`;
+  currentPoints = [];
+  render();
+}
+
+function cancelCurrent() {
+  currentPoints = [];
+  statusEl.textContent = '已取消当前';
+  render();
+}
+
+// 类型/模式按钮
+document.querySelectorAll('.type-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentType = btn.dataset.type;
+    statusEl.textContent = `笔刷: ${currentType}`;
+  };
+});
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMode = btn.id === 'mode-line' ? 'line' : 'polygon';
+    statusEl.textContent = `模式: ${currentMode}`;
+  };
+});
+
+document.getElementById('finish').onclick = finishCurrent;
+document.getElementById('cancel').onclick = cancelCurrent;
+document.getElementById('undo-pt').onclick = () => {
+  currentPoints.pop();
+  render();
+  statusEl.textContent = `撤销, 剩 ${currentPoints.length} 点`;
+};
+document.getElementById('clear-all').onclick = () => {
+  if (confirm('清空所有标记?')) { regions = []; currentPoints = []; render(); }
+};
+document.getElementById('copy-json').onclick = () => {
+  const ta = document.getElementById('json-out');
+  ta.select();
+  document.execCommand('copy');
+  statusEl.textContent = '✓ 已复制到剪贴板';
+};
+
+// —— 缩放 ——
+function setZoom(z) {
+  zoom = Math.max(0.25, Math.min(8, z));
+  stage.style.transform = `scale(${zoom})`;
+  stage.style.width = `${1408 * zoom}px`;
+  stage.style.height = `${512 * zoom}px`;
+  document.getElementById('zoom-label').textContent = `${Math.round(zoom * 100)}%`;
+}
+// 注意: transform scale 会让子元素的 offset/rect 跟着变, 上面点击处理已用 rect.width 换算, 不会错位
+function setZoomKeepSize(z) {
+  // 改为改 stage 本身的尺寸(不用 transform, 简单)
+  zoom = Math.max(0.25, Math.min(8, z));
+  stage.style.transform = '';
+  stage.style.width = `${1408 * zoom}px`;
+  stage.style.height = `${512 * zoom}px`;
+  // 子元素 img/canvas 用 width/height 跟随
+  const img = document.getElementById('preview');
+  img.style.width = `${1408 * zoom}px`;
+  img.style.height = `${512 * zoom}px`;
+  canvas.style.width = `${1408 * zoom}px`;
+  canvas.style.height = `${512 * zoom}px`;
+  document.getElementById('zoom-label').textContent = `${Math.round(zoom * 100)}%`;
+}
+document.getElementById('zoom-in').onclick = () => setZoomKeepSize(zoom * 1.4);
+document.getElementById('zoom-out').onclick = () => setZoomKeepSize(zoom / 1.4);
+document.getElementById('zoom-reset').onclick = () => setZoomKeepSize(1.0);
+// Ctrl+滚轮
+stageWrap.addEventListener('wheel', (e) => {
+  if (e.ctrlKey) {
+    e.preventDefault();
+    setZoomKeepSize(zoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2));
+  }
+}, { passive: false });
+
+// 键盘
+window.addEventListener('keydown', (e) => {
+  if (document.activeElement.tagName === 'INPUT' ||
+      document.activeElement.tagName === 'TEXTAREA') return;
+  if (e.key === 'Enter') { e.preventDefault(); finishCurrent(); }
+  else if (e.key === 'Escape') { cancelCurrent(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+    e.preventDefault();
+    currentPoints.pop();
+    render();
+  }
+});
+
+setZoomKeepSize(1.0);
+render();
+statusEl.textContent = '就绪. 点一下地图加点, Enter 闭合.';
+</script>
+</body>
+</html>

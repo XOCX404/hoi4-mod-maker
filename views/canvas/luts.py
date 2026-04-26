@@ -67,6 +67,46 @@ for _ridx, _rbgra in RIVER_DISPLAY_COLORS.items():
     _RIVER_COLOR_LUT[_ridx] = _rbgra
 # 背景色不需要在画布上显示（用底图）
 
+# 高度 → BGRA 彩色 LUT (供 height renderer 及 state/country 地形底图共用)
+# 色带: 0-40 深蓝 深海 / 40-90 浅蓝 浅海 / 90-95 青色 海平面
+#       95-130 绿色 平原 / 130-160 黄绿 丘陵 / 160-200 棕色 山地
+#       200-240 深棕 高山 / 240-255 白色 雪顶
+_HEIGHT_COLOR_LUT = np.zeros((256, 4), dtype=np.uint8)
+_HEIGHT_BANDS = [
+    (0,   40,  (20,  40,  80),  (30,  60, 120)),
+    (40,  90,  (60,  90, 140),  (100, 140, 180)),
+    (90,  95,  (140, 180, 180), (160, 200, 180)),
+    (95,  130, (80,  160, 80),  (140, 190, 100)),
+    (130, 160, (160, 190, 100), (200, 200, 80)),
+    (160, 200, (160, 140, 60),  (140, 100, 50)),
+    (200, 240, (120, 80,  40),  (100, 70,  50)),
+    (240, 256, (200, 200, 210), (255, 255, 255)),
+]
+for _lo, _hi, (_r0, _g0, _b0), (_r1, _g1, _b1) in _HEIGHT_BANDS:
+    _span = max(_hi - _lo, 1)
+    for _v in range(_lo, min(_hi, 256)):
+        _t = (_v - _lo) / _span
+        _r = int(_r0 + (_r1 - _r0) * _t)
+        _g = int(_g0 + (_g1 - _g0) * _t)
+        _b = int(_b0 + (_b1 - _b0) * _t)
+        _HEIGHT_COLOR_LUT[_v] = (_b, _g, _r, 255)  # BGRA
+
+# State/Country 模式下的地形底图 LUT (去饱和，避免抢 state/country 的彩色)
+# 海域：深→浅蓝（高度 < SEA_LEVEL）；陆地：灰度（高度 >= SEA_LEVEL，越高越亮）
+_HEIGHT_UNDERLAY_LUT = np.zeros((256, 4), dtype=np.uint8)
+_SEA_LVL = 90
+for _v in range(256):
+    if _v < _SEA_LVL:
+        _t = _v / max(_SEA_LVL, 1)
+        _b = int(110 + _t * 70)
+        _g = int(60 + _t * 60)
+        _r = int(30 + _t * 40)
+        _HEIGHT_UNDERLAY_LUT[_v] = (_b, _g, _r, 255)
+    else:
+        _t = (_v - _SEA_LVL) / max(255 - _SEA_LVL, 1)
+        _gray = int(120 + _t * 120)
+        _HEIGHT_UNDERLAY_LUT[_v] = (_gray, _gray, _gray, 255)
+
 # 省份随机颜色 LUT (确定性, 基于省份ID)
 _PROVINCE_COLOR_LUT_SIZE = 65536
 _rng = np.random.RandomState(42)

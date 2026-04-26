@@ -304,12 +304,14 @@ class ApplicationController:
         if int(self._canvas.province_map.max()) == 0:
             return
         # 传 tile_map → 让 builder 用多数决识别陆地省, 避免海洋省被涂色
-        rgb = self._project.country_mgr.build_country_color_map(
+        # 返回 (rgb, assigned_mask): assigned_mask 标记"已分配国家"的 land 像素
+        # → 国家 renderer 据此只在已分配区域之间画白边, 跳过海洋/未分配 state
+        rgb, assigned_mask = self._project.country_mgr.build_country_color_map(
             self._canvas.province_map,
             self._project.state_mgr,
             tile_map=self._canvas.tile_map,
         )
-        self._canvas.set_country_colors(rgb)
+        self._canvas.set_country_colors(rgb, assigned_mask)
 
     def _refresh_sr_colors(self) -> None:
         if int(self._canvas.province_map.max()) == 0:

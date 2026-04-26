@@ -11,6 +11,7 @@ from __future__ import annotations
 from PyQt5.QtWidgets import (
     QMainWindow, QAction, QFileDialog, QMessageBox, QWidget,
     QLabel, QApplication, QInputDialog, QStackedWidget, QHBoxLayout,
+    QWidgetAction, QSlider,
 )
 from PyQt5.QtCore import Qt, QTimer, QPoint
 from PyQt5.QtGui import QKeySequence
@@ -196,6 +197,46 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         act_cs.triggered.connect(self._on_terrain_context_overlay)
         view_menu.addAction(act_cs)
         self._act_country_state_overlay = act_cs
+        # 地形底图（国家/州模式下做底，保留画边界时的地形参考）
+        act_tu = QAction(tr("action_show_terrain_underlay"), self)
+        act_tu.setCheckable(True)
+        act_tu.setChecked(False)
+        act_tu.setToolTip(tr("action_show_terrain_underlay_tip"))
+        act_tu.triggered.connect(self._on_terrain_underlay_toggle)
+        view_menu.addAction(act_tu)
+        self._act_terrain_underlay = act_tu
+        # 透明度滑块（嵌入菜单）
+        opacity_widget = QWidget()
+        opacity_layout = QHBoxLayout(opacity_widget)
+        opacity_layout.setContentsMargins(24, 2, 12, 2)
+        opacity_layout.addWidget(QLabel(tr("action_terrain_underlay_opacity")))
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(10, 100)
+        slider.setValue(40)
+        slider.setFixedWidth(140)
+        slider.valueChanged.connect(self._on_terrain_underlay_opacity)
+        opacity_layout.addWidget(slider)
+        act_opacity = QWidgetAction(self)
+        act_opacity.setDefaultWidget(opacity_widget)
+        view_menu.addAction(act_opacity)
+        self._terrain_underlay_slider = slider
+
+        # 地形底图源切换 (互斥: 高度图 / 地形图)
+        from PyQt5.QtWidgets import QActionGroup
+        underlay_group = QActionGroup(self)
+        underlay_group.setExclusive(True)
+        act_src_height = QAction(tr("action_terrain_underlay_src_height"), self)
+        act_src_height.setCheckable(True)
+        act_src_height.setChecked(True)
+        act_src_height.triggered.connect(lambda: self._on_terrain_underlay_source("height"))
+        view_menu.addAction(act_src_height)
+        underlay_group.addAction(act_src_height)
+
+        act_src_terrain = QAction(tr("action_terrain_underlay_src_terrain"), self)
+        act_src_terrain.setCheckable(True)
+        act_src_terrain.triggered.connect(lambda: self._on_terrain_underlay_source("terrain"))
+        view_menu.addAction(act_src_terrain)
+        underlay_group.addAction(act_src_terrain)
 
         # 工具
         tools_menu = menubar.addMenu(tr("menu_tools"))
@@ -314,6 +355,7 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
             lambda s: setattr(self._controllers["terrain"], "soft_edge", s)
         )
         tp.auto_height_requested.connect(self._on_auto_height)
+        tp.height_from_terrain_requested.connect(self._on_height_from_terrain)
         tp.import_heightmap_requested.connect(self._on_import_heightmap)
         tp.height_brush_mode_changed.connect(cv.set_height_brush_mode)
         tp.height_brush_size_changed.connect(cv.set_height_brush_size)
@@ -357,6 +399,9 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         tp.state_assign_mode_changed.connect(
             lambda on: setattr(self._controllers["state"], "assign_mode", on)
         )
+        tp.state_delete_requested.connect(
+            lambda sid: self._controllers["state"].delete_state(sid)
+        )
 
         # Country 信号 → controller
         tp.create_country_requested.connect(self._on_create_country)
@@ -364,10 +409,15 @@ class MainWindow(MainWindowActionsMixin, QMainWindow):
         tp.country_selected.connect(
             lambda tag: self._controllers["country"].select_country(tag)
         )
+        # 选中国家时, 在 canvas 上高亮该国所有领土像素
+        tp.country_selected.connect(self._on_country_highlight)
         tp.country_property_changed.connect(
             lambda tag, prop, val: self._controllers["country"].change_property(tag, prop, val)
         )
         tp.country_color_change_requested.connect(self._on_country_color_change)
+        tp.country_delete_requested.connect(
+            lambda tag: self._controllers["country"].delete_country(tag)
+        )
 
         # River 信号
         tp.river_type_changed.connect(cv.set_river_type)

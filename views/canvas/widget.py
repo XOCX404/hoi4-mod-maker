@@ -94,6 +94,14 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
         # State / Country / Strategic Region / Railway 颜色缓冲区
         self._state_color_rgb = None   # np.ndarray (H, W, 3) or None
         self._country_color_rgb = None  # np.ndarray (H, W, 3) or None
+        # 选中国家高亮: 该国 RGB (用于在 country renderer 里 mask 匹配)
+        self._highlight_country_rgb: tuple[int, int, int] | None = None
+        # 已分配国家的 land 像素 mask (H, W bool) — 让 country renderer 跳过未分配区域不画边
+        self._country_assigned_mask: "np.ndarray | None" = None
+        # country 边界 cache (避免每次重绘都全图算): (rgb_id, assigned_mask_id) → (white, red)
+        self._country_borders_cache: tuple | None = None
+        # 地形底图源: "height" (彩色高度图) 或 "terrain" (地形分类图)
+        self._terrain_underlay_source: str = "height"
         self._sr_color_rgb = None      # np.ndarray (H, W, 3) or None
         self._railway_color_rgb = None # np.ndarray (H, W, 3) or None
         # 省份属性地形（gameplay terrain）颜色缓冲区
@@ -240,6 +248,15 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
         self._terrain_ctx_country_mgr = None
         self._terrain_ctx_state_mgr = None
 
+        # State / Country 模式下的地形底图叠加层（用 heightmap 彩色图做参考）
+        self._terrain_underlay_item = QGraphicsPixmapItem()
+        self._terrain_underlay_item.setZValue(5)
+        self._terrain_underlay_item.setVisible(False)
+        self._terrain_underlay_item.setOpacity(0.4)
+        self._scene.addItem(self._terrain_underlay_item)
+        self._terrain_underlay_visible = False
+        self._terrain_underlay_opacity = 0.4
+
         # 套索路径反馈（黄色虚线）
         self._lasso_path_item = QGraphicsPathItem()
         pen = QPen(QColor(255, 230, 0, 230), 2)
@@ -342,6 +359,9 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
         # map_data 换了，地形上下文 overlay 的 pixmap 尺寸不匹配，重建
         if getattr(self, '_terrain_context_visible', False):
             self.refresh_terrain_context_overlay()
+        # 地形底图同理 — 跟 heightmap 走
+        if getattr(self, '_terrain_underlay_visible', False):
+            self.refresh_terrain_underlay()
 
     @property
     def map_data(self):
@@ -437,6 +457,8 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
         # 地形视图的国家/州 overlay pixmap 尺寸和内容都要跟着省份图重建
         if getattr(self, '_terrain_context_visible', False):
             self.refresh_terrain_context_overlay()
+        if getattr(self, '_terrain_underlay_visible', False):
+            self.refresh_terrain_underlay()
 
     @property
     def terrain_map(self) -> np.ndarray:
@@ -497,6 +519,13 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
                 self.refresh_terrain_context_overlay()
             else:
                 overlay.setVisible(False)
+        # 地形底图仅在 state/country 模式下显示
+        underlay = getattr(self, '_terrain_underlay_item', None)
+        if underlay is not None:
+            if getattr(self, '_terrain_underlay_visible', False) and mode in ("state", "country"):
+                self.refresh_terrain_underlay()
+            else:
+                underlay.setVisible(False)
         self._full_render()
         # 后勤模式不再需要 overlay（改用着色图）
         if mode != "logistics" and self._lasso_overlay.isVisible():
@@ -553,11 +582,44 @@ class MapCanvas(InputMixin, OverlayMixin, RefImageMixin, QGraphicsView):
         if self._display_mode == "state":
             self._full_render()
 
-    def set_country_colors(self, rgb: np.ndarray) -> None:
-        """存储 Country 颜色 RGB 数组并触发渲染"""
+    def set_country_colors(self, rgb: np.ndarray, assigned_mask=None) -> None:
+        """存储 Country 颜色 RGB 数组 + 已分配国家像素 mask, 触发渲染.
+
+        assigned_mask: H×W bool, True = 该像素属于已分配国家的 land
+            (海洋/未分配 state 处为 False, country renderer 不在这些边界上画白边).
+        """
         self._country_color_rgb = rgb
+        self._country_assigned_mask = assigned_mask
+        # rgb 变了 → 边界 cache 失效
+        self._country_borders_cache = None
         if self._display_mode == "country":
             self._full_render()
+
+    def set_highlight_country(self, rgb: tuple[int, int, int] | None) -> None:
+        """设置选中国家的 RGB (用于 country mode 下高亮显示). 传 None 取消."""
+        self._highlight_country_rgb = rgb
+        # 高亮变了不需要重算白边 (cache 中只缓存白边), 只需重绘红边
+        if self._display_mode == "country":
+            self._full_render()
+
+    def set_terrain_underlay_visible(self, visible: bool) -> None:
+        """开关 state/country 模式下的地形底图叠加层。"""
+        self._terrain_underlay_visible = bool(visible)
+        self.refresh_terrain_underlay()
+
+    def set_terrain_underlay_opacity(self, opacity: float) -> None:
+        """设置地形底图不透明度 (0.0 全透明 ~ 1.0 完全不透明)。"""
+        self._terrain_underlay_opacity = max(0.0, min(1.0, float(opacity)))
+        item = getattr(self, "_terrain_underlay_item", None)
+        if item is not None:
+            item.setOpacity(self._terrain_underlay_opacity)
+
+    def set_terrain_underlay_source(self, source: str) -> None:
+        """切换地形底图源: 'height' (彩色高度图) 或 'terrain' (地形分类图)."""
+        if source not in ("height", "terrain"):
+            return
+        self._terrain_underlay_source = source
+        self.refresh_terrain_underlay()
 
     def set_sr_colors(self, rgb: np.ndarray) -> None:
         """存储 Strategic Region 颜色 RGB 数组并触发渲染"""

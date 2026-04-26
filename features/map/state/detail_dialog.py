@@ -21,12 +21,13 @@ from PyQt5.QtWidgets import (
 from ui.i18n import tr
 
 
-# HOI4 战略资源
-RESOURCE_NAMES = ["oil", "aluminium", "rubber", "tungsten", "steel", "chromium"]
+# HOI4 战略资源 (vanilla 1.18 完整列表)
+RESOURCE_NAMES = ["oil", "aluminium", "rubber", "tungsten", "steel", "chromium", "coal"]
 RESOURCE_LABELS = {
     "oil": "state_dlg_res_oil", "aluminium": "state_dlg_res_aluminium",
     "rubber": "state_dlg_res_rubber", "tungsten": "state_dlg_res_tungsten",
     "steel": "state_dlg_res_steel", "chromium": "state_dlg_res_chromium",
+    "coal": "state_dlg_res_coal",
 }
 
 # HOI4 state 级建筑 (value 0 = 不写)

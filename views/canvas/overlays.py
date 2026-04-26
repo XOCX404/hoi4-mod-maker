@@ -9,10 +9,12 @@ from PyQt5.QtGui import (
 )
 
 # 国家/州归属 overlay 允许显示的模式（基础视图本身不按国家/州染色的那些）。
-# state/country/continent/strategic_region 自身已按归属染色，叠加会双层染色，故排除。
+# 允许"国家色 + 州边界"叠加层的模式
+# state/country 自身已按归属染色 → overlay 在这两个模式下只画边界不再填色
 CS_OVERLAY_ALLOWED_MODES = frozenset({
     "land", "terrain", "height", "river", "province",
     "logistics", "colormap", "default_map", "province_terrain",
+    "state", "country",
 })
 
 class OverlayMixin:
@@ -150,12 +152,55 @@ class OverlayMixin:
         borders[1:, :]  |= state_map[:-1, :] != state_map[1:, :]
         borders[:, :-1] |= state_map[:, :-1] != state_map[:, 1:]
         borders[:, 1:]  |= state_map[:, :-1] != state_map[:, 1:]
-        rgba[borders] = (255, 255, 255, 220)  # 白色边界
+        rgba[borders] = (200, 200, 200, 110)  # 弱化白 (灰白半透明)
 
         img = QImage(rgba.data, w, h, w * 4, QImage.Format.Format_ARGB32)
         img._ref = rgba
         overlay.setPixmap(QPixmap.fromImage(img))
         overlay.setVisible(True)
+
+    def refresh_terrain_underlay(self) -> None:
+        """根据 source / display_mode 重建地形底图叠加层.
+
+        source = 'height': 彩色高度图 LUT (深蓝/绿/黄/棕/白) — 看山脉/海岸
+        source = 'terrain': 地形分类 LUT (HOI4 标准地形色) — 看 plains/forest/mountain 分布
+        透明度滑块控制和 state/country 颜色的混合度.
+        """
+        from views.canvas.luts import _HEIGHT_COLOR_LUT, _TERRAIN_COLOR_LUT
+        item = getattr(self, "_terrain_underlay_item", None)
+        if item is None:
+            return
+        visible = getattr(self, "_terrain_underlay_visible", False)
+        if not visible or self._display_mode not in ("state", "country"):
+            item.setVisible(False)
+            return
+
+        source = getattr(self, "_terrain_underlay_source", "height")
+        if source == "terrain":
+            # 用省份属性 (provincial_terrain) 颜色 — 用户精挑细选的真实地形分类
+            pt_rgb = getattr(self, "_provincial_terrain_color_rgb", None)
+            if pt_rgb is None:
+                item.setVisible(False)
+                return
+            h, w = pt_rgb.shape[:2]
+            rgba = np.zeros((h, w, 4), dtype=np.uint8)
+            rgba[:, :, 0] = pt_rgb[:, :, 2]  # B
+            rgba[:, :, 1] = pt_rgb[:, :, 1]  # G
+            rgba[:, :, 2] = pt_rgb[:, :, 0]  # R
+            rgba[:, :, 3] = 255
+        else:
+            hm = getattr(self, "_height_map", None)
+            if hm is None:
+                item.setVisible(False)
+                return
+            rgba = np.ascontiguousarray(_HEIGHT_COLOR_LUT[hm])
+            h, w = hm.shape
+
+        img = QImage(rgba.data, w, h, w * 4, QImage.Format.Format_ARGB32)
+        img._ref = rgba
+        item.setPixmap(QPixmap.fromImage(img))
+        item.setOpacity(getattr(self, "_terrain_underlay_opacity", 0.5))
+        item.setVisible(True)
 
     def show_terrain_context_overlay(
         self, visible: bool, country_mgr=None, state_mgr=None,
@@ -190,6 +235,9 @@ class OverlayMixin:
         h, w = self._province_map.shape
         max_pid = pm_max
 
+        # state/country 模式下底图已经按归属染色，overlay 不再填国家色，只画边界
+        borders_only = self._display_mode in ("state", "country")
+
         # pid → (state_id, bgra 颜色) 两张 LUT
         pid_to_sid = np.zeros(max_pid + 1, dtype=np.int32)
         pid_to_color = np.zeros((max_pid + 1, 4), dtype=np.uint8)  # BGRA
@@ -197,13 +245,16 @@ class OverlayMixin:
         states = getattr(state_mgr, "states", {}) or {}
         get_owner = getattr(country_mgr, "get_state_owner", lambda _sid: "")
         for sid, state in states.items():
-            owner_tag = get_owner(sid)
-            if owner_tag and owner_tag in countries:
-                c = countries[owner_tag].color
-                r, g, b = int(c[0]) & 0xFF, int(c[1]) & 0xFF, int(c[2]) & 0xFF
-                bgra = (b, g, r, 110)
+            if borders_only:
+                bgra = (0, 0, 0, 0)  # 完全透明 — 只保留州边界线效果
             else:
-                bgra = (90, 90, 90, 55)  # 未分配国家：淡灰
+                owner_tag = get_owner(sid)
+                if owner_tag and owner_tag in countries:
+                    c = countries[owner_tag].color
+                    r, g, b = int(c[0]) & 0xFF, int(c[1]) & 0xFF, int(c[2]) & 0xFF
+                    bgra = (b, g, r, 110)
+                else:
+                    bgra = (90, 90, 90, 55)  # 未分配国家：淡灰
             for pid in state.provinces:
                 if 0 < pid <= max_pid:
                     pid_to_sid[pid] = sid

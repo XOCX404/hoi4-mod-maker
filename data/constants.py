@@ -144,9 +144,13 @@ REPLACE_PATHS = [
     "history/units",
     "history/general",
 
-    # --- 国家定义（必须替换，我们要定义自己的TAG）---
-    "common/country_tags",
-    "common/countries",
+    # --- 国家定义 ---
+    # 注意：common/country_tags 和 common/countries 【不能】replace!
+    # vanilla 的 gfx/equipmentdesigner 等文件引用 USA/GER/SOV/ENG 等 TAG，
+    # replace 后 vanilla TAG 全消失 → 大量 "Expected tag" 错误 →
+    # 累积触发 EXCEPTION_INT_DIVIDE_BY_ZERO 崩溃。
+    # 改为共存：MOD 的 TAG 写到 02_/zz_ 文件名（见 writers/common/countries.py），
+    # vanilla 的 00_countries.txt 继续加载。
 
     # --- AI 系统：必须 replace ---
     # vanilla AI 文件引用 ENG/GER/JAP 等国家标签，
@@ -187,9 +191,17 @@ REPLACE_PATHS = [
     # 每 tick 刷几万行错误 → 走时间崩溃 (LastRead=client_ping).
     # replace 后导出器必须同时拷贝 vanilla 的 decisions/categories/ 目录,
     # 否则加载时找不到 decision category 定义 → 加载崩溃.
-    "common/raids",
+    # "common/raids",  # 不能 replace — replace 后 vanilla 的 air_raids/nuclear_raids/paratrooper_raids/
+                        # land_infiltration_custom.txt 丢失，HOI4 解析完 raid_categories.txt 后找不到
+                        # 具体 raid 定义 → EXCEPTION_INT_DIVIDE_BY_ZERO 崩溃。
     "common/decisions",
     "common/strategic_locations",
+    # 必须 replace common/on_actions: vanilla on_actions 引用 vanilla decisions
+    # (CHI_war_in_south_halting / GER_mefo_bills_mission 等), 我们 replace 了 decisions
+    # 后, vanilla on_actions 触发这些 mission 时 → 找不到 decision → access violation
+    # 崩溃 (实测 2026-04-26 案例, LastRead=common/on_actions/15_mun_on_actions.txt).
+    # 我们的 scrubber 会写一个空 on_actions placeholder 占位, 让引擎找得到目录但无引用.
+    "common/on_actions",
 
     # ════════════════════════════════════════════════════════════
     # 阶段 5 "Nuke AI" 已回退（2026-04-08 实测）

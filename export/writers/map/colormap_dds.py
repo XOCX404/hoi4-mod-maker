@@ -29,18 +29,18 @@ _DEFAULT_COLOR_LAND = (60, 90, 95, 0)
 _DEFAULT_COLOR_SEA  = (90, 55, 30, 0)
 _DEFAULT_COLOR_LAKE = (140, 110, 70, 0)
 
-# 按 terrain type 的战略视图着色 (B, G, R, A)
+# 按 terrain type 的战略视图着色 (B, G, R, A) — 提高饱和度让色块明显
 _TERRAIN_TYPE_COLORS: dict[str, tuple[int, int, int, int]] = {
-    "plains":   (55, 100, 90, 0),    # 土绿
-    "forest":   (45, 80, 55, 0),     # 深绿
-    "hills":    (55, 95, 110, 0),    # 黄褐
-    "mountain": (70, 80, 90, 0),     # 灰褐
-    "desert":   (60, 130, 170, 0),   # 沙黄
-    "marsh":    (65, 90, 60, 0),     # 暗绿
-    "jungle":   (35, 75, 45, 0),     # 深绿
-    "urban":    (75, 85, 95, 0),     # 灰色
-    "ocean":    (90, 55, 30, 0),     # 深蓝
-    "lakes":    (140, 110, 70, 0),   # 浅蓝
+    "plains":   (60, 140, 110, 0),   # 鲜亮草绿
+    "forest":   (40, 95, 50, 0),     # 深森林绿
+    "hills":    (75, 130, 150, 0),   # 黄褐 (饱和度提高)
+    "mountain": (110, 115, 120, 0),  # 灰褐 (亮一点, 山顶配雪)
+    "desert":   (80, 175, 215, 0),   # 沙黄 (饱和度提高)
+    "marsh":    (60, 100, 70, 0),    # 沼泽暗绿
+    "jungle":   (30, 90, 45, 0),     # 丛林深绿
+    "urban":    (90, 100, 110, 0),   # 城市灰
+    "ocean":    (90, 55, 30, 0),
+    "lakes":    (180, 130, 80, 0),
 }
 
 
@@ -74,18 +74,31 @@ def write_water_colormap_dds(
     tile_map: np.ndarray,
     output_dir: str,
 ) -> None:
-    """生成 map/terrain/colormap_water_0.dds (及 1, 2 mip 级别).
+    """生成 map/terrain/colormap_water_0/1/2.dds — 海洋颜色, 三个 MIP 级别.
 
-    HOI4 用这些 DDS 决定海洋颜色。
-    - colormap_water_0.dds: 半地图尺寸 (MAP_WIDTH//2 x MAP_HEIGHT//2)
-    - colormap_water_1.dds: 四分之一尺寸
-    - colormap_water_2.dds: 八分之一尺寸
-
-    格式: 无压缩 BGRA8, 128 字节 DDS 头。
-    海洋像素: 深蓝色; 陆地像素: 同色（只有水面被引擎使用）。
+    用 distance_transform 算"距陆地距离" → 浅海到深海渐变:
+    - 近海 (距离 < 80px): 青绿色 → 深蓝
+    - 远海: 纯深蓝
+    海岸礁石带浅黄一点点过渡, 让海陆衔接自然.
     """
-    # 水面颜色 (B, G, R, A)
-    water_color = np.array([150, 100, 50, 255], dtype=np.uint8)
+    try:
+        from scipy.ndimage import distance_transform_edt
+    except ImportError:
+        # 没 scipy 退回纯色
+        return _write_water_colormap_solid(tile_map, output_dir)
+
+    # 在 full size 算距离
+    sea = (tile_map == TILE_SEA) | (tile_map == 0)
+    dist_to_land = distance_transform_edt(sea).astype(np.float32)
+
+    # BGRA: 浅海青绿 → 深海深蓝
+    SHALLOW = np.array([180, 200, 130, 255], dtype=np.float32)  # 青绿 (B=180 G=200 R=130)
+    DEEP = np.array([110, 70, 30, 255], dtype=np.float32)        # 深蓝
+    norm = np.clip(dist_to_land / 80.0, 0, 1)  # 80 像素到达深海色
+    full_pixels = SHALLOW + (DEEP - SHALLOW) * norm[..., None]
+    # 陆地填默认色 (引擎不用陆地像素的水色, 但写一致避免 mip 边缘伪影)
+    full_pixels[~sea] = DEEP
+    full_pixels = np.clip(full_pixels, 0, 255).astype(np.uint8)
 
     out_dir = os.path.join(output_dir, "map", "terrain")
     os.makedirs(out_dir, exist_ok=True)
@@ -95,19 +108,25 @@ def write_water_colormap_dds(
         dds_h = MAP_HEIGHT // divisor
         if dds_w < 1 or dds_h < 1:
             break
+        ds = full_pixels[::divisor, ::divisor][:dds_h, :dds_w]
+        header = _build_dds_header(dds_w, dds_h)
+        with open(os.path.join(out_dir, f"colormap_water_{level}.dds"), "wb") as f:
+            f.write(header)
+            f.write(np.ascontiguousarray(ds).tobytes())
 
-        # 降采样 tile_map
-        downsampled = tile_map[::divisor, ::divisor]
-        # 裁剪到目标尺寸（避免不整除的余数行列）
-        downsampled = downsampled[:dds_h, :dds_w]
-        h, w = downsampled.shape
 
-        pixels = np.empty((h, w, 4), dtype=np.uint8)
-        pixels[:] = water_color  # 全部填水色（陆地部分引擎不用）
-
-        header = _build_dds_header(w, h)
-        out_path = os.path.join(out_dir, f"colormap_water_{level}.dds")
-        with open(out_path, "wb") as f:
+def _write_water_colormap_solid(tile_map, output_dir):
+    """scipy 不可用时的 fallback (纯色)."""
+    water_color = np.array([110, 70, 30, 255], dtype=np.uint8)
+    out_dir = os.path.join(output_dir, "map", "terrain")
+    os.makedirs(out_dir, exist_ok=True)
+    for level, divisor in enumerate([2, 4, 8]):
+        dds_w = MAP_WIDTH // divisor
+        dds_h = MAP_HEIGHT // divisor
+        pixels = np.empty((dds_h, dds_w, 4), dtype=np.uint8)
+        pixels[:] = water_color
+        header = _build_dds_header(dds_w, dds_h)
+        with open(os.path.join(out_dir, f"colormap_water_{level}.dds"), "wb") as f:
             f.write(header)
             f.write(pixels.tobytes())
 
@@ -117,6 +136,7 @@ def write_colormap_dds(
     output_dir: str,
     settings=None,
     terrain_map: np.ndarray | None = None,
+    height_map: np.ndarray | None = None,
 ) -> None:
     """从 tile_map + terrain_map 生成 map/terrain/colormap_rgb_cityemissivemask_a.dds.
 
@@ -163,6 +183,37 @@ def write_colormap_dds(
         pixels[land_mask] = color_land
 
     pixels[lake_mask] = color_lake
+
+    # ── 高度调制 + 雪山 + 海岸沙滩 (有 heightmap 才做) ──
+    if height_map is not None and height_map.shape == (MAP_HEIGHT, MAP_WIDTH):
+        ds_height = height_map[::2, ::2].astype(np.float32)
+        # 1. 雪山: 高度 > 200 → 渐进白
+        snow_t = np.clip((ds_height - 200) / 40.0, 0, 1)  # 200→0, 240→1
+        snow_color = np.array([240, 240, 250], dtype=np.float32)
+        # 2. 高度调亮: 100 (海岸)=1.0, 200=1.25, 50=0.8 (深谷暗)
+        brightness = np.clip(0.7 + (ds_height - 95) / 200.0, 0.65, 1.35)
+        rgb = pixels[..., :3].astype(np.float32)
+        rgb = rgb * brightness[..., None]
+        # 雪混入
+        rgb[land_mask] = (
+            rgb[land_mask] * (1 - snow_t[land_mask, None])
+            + snow_color * snow_t[land_mask, None]
+        )
+        pixels[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+        # 3. 海岸沙滩: 距海 < 4px 的陆地 → 浅黄
+        try:
+            from scipy.ndimage import distance_transform_edt
+            sea_full = (tile_map == TILE_SEA) | (tile_map == 0)
+            dist_to_sea_full = distance_transform_edt(~sea_full).astype(np.float32)
+            ds_dist = dist_to_sea_full[::2, ::2]
+            beach_t = np.clip(1 - ds_dist / 4.0, 0, 1) * 0.6  # 4px 内 60% 沙色
+            beach = np.array([130, 200, 235], dtype=np.float32)  # BGR 浅沙色
+            rgb = pixels[..., :3].astype(np.float32)
+            mix = land_mask & (ds_dist < 4)
+            rgb[mix] = rgb[mix] * (1 - beach_t[mix, None]) + beach * beach_t[mix, None]
+            pixels[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+        except ImportError:
+            pass
 
     # ── 消除"拼贴"硬边：给陆地加噪声 + gaussian 模糊 ──
     # 为什么：vanilla colormap 是画家手绘 + 噪声，几千种颜色；

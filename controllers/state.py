@@ -8,8 +8,10 @@ from typing import TYPE_CHECKING, Any
 
 from controllers.base import BaseController
 from commands.state.assign import AssignProvinceToStateCommand
+from commands.state.delete import DeleteStateCommand
 from commands.state.set_property import SetStatePropertyCommand
 from commands.state.set_vp import SetVPCommand
+from data.constants import TILE_LAND
 
 if TYPE_CHECKING:
     from model.project import Project
@@ -25,6 +27,18 @@ class StateController(BaseController):
         self.assign_mode: bool = False  # False=查看模式, True=分配模式
         # 始终监听省份重新生成（不管当前模式）
         self.event_bus.subscribe("province_map_regenerated", self._on_province_regen)
+
+    def _is_land_province(self, pid: int) -> bool:
+        """多数决判定陆地省份 — State 只能包含陆地省，不能吞并海洋/湖泊。"""
+        if pid <= 0:
+            return False
+        map_data = self.project.map_data
+        mask = (map_data.province_map == pid)
+        total = int(mask.sum())
+        if total == 0:
+            return False
+        land_count = int(((map_data.tile_map == TILE_LAND) & mask).sum())
+        return land_count * 2 > total
 
     def _on_province_regen(self, event) -> None:
         """省份全量重新生成 → 清除所有 State 数据。"""
@@ -58,6 +72,9 @@ class StateController(BaseController):
         # 分配模式：把省份加到选中的州
         if self.assign_mode and self.selected_state_id > 0:
             if sid == self.selected_state_id:
+                return
+            if not self._is_land_province(pid):
+                self._emit_status(f"省份 {pid} 是海洋/湖泊，不能加入 State（State 只含陆地）")
                 return
             cmd = AssignProvinceToStateCommand(
                 state_mgr, pid, sid, self.selected_state_id,
@@ -103,6 +120,21 @@ class StateController(BaseController):
 
         # 通知 UI 弹 VP 对话框（controller 不直接弹 Qt 对话框）
         self.event_bus.emit("vp_dialog_requested", pid=pid, state_id=sid)
+
+    def delete_state(self, sid: int) -> None:
+        """删除指定 state, 同步清理 country owner 引用. 走 command 支持 undo."""
+        state_mgr = self.project.state_mgr
+        country_mgr = self.project.country_mgr
+        if sid <= 0 or state_mgr.get_state(sid) is None:
+            self._emit_status(f"State {sid} 不存在")
+            return
+        cmd = DeleteStateCommand(state_mgr, country_mgr, sid)
+        self.history.execute(cmd)
+        if self.selected_state_id == sid:
+            self.selected_state_id = 0
+        self.project.mark_dirty()
+        self.event_bus.emit("state_changed", state_id=sid, action="deleted")
+        self._emit_status(f"已删除 State {sid}")
 
     def set_vp(self, pid: int, value: int, name: str = "") -> None:
         """设置省份的 VP 值 + 城市名（由 UI 对话框回调调用）。"""
@@ -162,9 +194,19 @@ class StateController(BaseController):
     # ── 批量建州 ──
 
     def create_state_from_provinces(self, province_ids: list[int]) -> int:
-        """从选中的省份列表创建新州。返回新州 ID。"""
+        """从选中的省份列表创建新州。返回新州 ID。海洋/湖泊省份会被过滤掉。"""
         if not province_ids:
             return 0
+
+        # 过滤掉非陆地省份（State 只能含陆地）
+        land_pids = [p for p in province_ids if self._is_land_province(p)]
+        skipped = len(province_ids) - len(land_pids)
+        if not land_pids:
+            self._emit_status("所选省份全部是海洋/湖泊，未创建 State")
+            return 0
+        if skipped > 0:
+            self._emit_status(f"已跳过 {skipped} 个海洋/湖泊省份")
+        province_ids = land_pids
 
         state_mgr = self.project.state_mgr
 

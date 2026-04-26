@@ -429,6 +429,138 @@ def auto_height(tile_map: np.ndarray) -> np.ndarray:
     return smart_auto_height(tile_map)
 
 
+# 每种 terrain 的高度参数:
+#   base = 该地形的最低高度 (区域边缘)
+#   peak = 该地形的最高高度 (区域中心, 距边界 spread 像素时达到)
+#   spread = 从 base 到 peak 需要的距离 (像素), 决定"区域多大才能形成峰"
+# 设计:
+#   - mountain peak=240 接近 255 上限, 大山块中心达山尖, 小块只到中段
+#   - hills 起伏 120-170
+#   - plains/forest 基本平地, peak 略高
+_HEIGHT_BY_TERRAIN: dict[str, dict[str, int]] = {
+    # ocean: base 是"海岸浅海" (高), peak 是"远海深渊" (低) — 距陆距离决定深度
+    # spread 100px → 距陆 100px 后达到最深, 大洋中央会非常深, 海岸附近浅一些有过渡
+    "ocean":    {"base": 92,  "peak": 35,  "spread": 100},
+    "lakes":    {"base": 92,  "peak": 87,  "spread": 5},
+    "plains":   {"base": 96,  "peak": 120, "spread": 30},
+    "desert":   {"base": 100, "peak": 125, "spread": 25},
+    "forest":   {"base": 105, "peak": 140, "spread": 20},
+    "jungle":   {"base": 105, "peak": 140, "spread": 20},
+    "marsh":    {"base": 95,  "peak": 105, "spread": 10},
+    "urban":    {"base": 100, "peak": 115, "spread": 10},
+    "hills":    {"base": 135, "peak": 185, "spread": 18},  # 提高 + 缩短 spread, 小山丘也明显
+    "mountain": {"base": 155, "peak": 245, "spread": 30},  # base 155 (单像素也是真山地), peak 245 接近极限
+}
+
+
+def _terrain_array_from_provincial(
+    provincial_terrain: dict[int, str],
+    province_map: np.ndarray,
+    tile_map: np.ndarray | None = None,
+) -> np.ndarray:
+    """把省份级属性 (provincial_terrain dict) 合成为像素级 terrain 数组.
+
+    没设 provincial_terrain 的省份按 tile_map 默认: sea→ocean, lake→lakes, land→plains.
+    """
+    max_pid = int(province_map.max())
+    plains_idx = TERRAIN_PALETTE_INDEX.get("plains", 0)
+    ocean_idx = TERRAIN_PALETTE_INDEX.get("ocean", 15)
+    lakes_idx = TERRAIN_PALETTE_INDEX.get("lakes", 14)
+
+    # 按 tile_map 算每个 pid 的默认 terrain (多数决: 该 pid 大部分像素是 sea? land? lake?)
+    lut = np.full(max_pid + 1, plains_idx, dtype=np.uint8)
+    if tile_map is not None:
+        flat_pm = province_map.ravel()
+        flat_tm = tile_map.ravel()
+        n = max_pid + 1
+        sea_count = np.bincount(flat_pm, weights=(flat_tm == TILE_SEA), minlength=n)
+        lake_count = np.bincount(flat_pm, weights=(flat_tm == TILE_LAKE), minlength=n)
+        total_count = np.bincount(flat_pm, minlength=n)
+        # 多数 sea → ocean; 多数 lake → lakes; 否则 plains
+        is_sea = sea_count * 2 > total_count
+        is_lake = lake_count * 2 > total_count
+        lut[is_sea] = ocean_idx
+        lut[is_lake] = lakes_idx
+
+    # 用户的 provincial_terrain 优先级最高, 覆盖默认
+    for pid, name in provincial_terrain.items():
+        try:
+            pid_int = int(pid)
+        except (TypeError, ValueError):
+            continue
+        if 0 < pid_int <= max_pid and name in TERRAIN_PALETTE_INDEX:
+            lut[pid_int] = TERRAIN_PALETTE_INDEX[name]
+    return lut[province_map]
+
+
+def auto_height_from_terrain(
+    terrain_map: np.ndarray,
+    tile_map: np.ndarray,
+    provincial_terrain: dict[int, str] | None = None,
+    province_map: np.ndarray | None = None,
+    smooth_sigma: float = 4.0,
+) -> np.ndarray:
+    """从 terrain 反推 height_map (用距离场把每种地形撑满高度区间).
+
+    数据源优先级:
+      1. provincial_terrain (省份级属性, 用户真正的意图) — 优先, HOI4 实际用这个判定
+      2. terrain_map (像素级装饰) — 回退, 仅当未提供 provincial_terrain 时
+
+    算法: 对每种 terrain 算"距离该地形区域**边界**的距离" (distance_transform_edt).
+        距离 = 0 (区域边缘) → base 高度
+        距离 ≥ spread (区域内深处) → peak 高度
+    → 大山块中心 240 (山尖), 小山丘只到中段, plains 基本平 + 微起伏.
+
+    高度范围用足 60-240, smooth_sigma 控制平滑度.
+    """
+    from scipy.ndimage import gaussian_filter, distance_transform_edt
+
+    # 选数据源
+    if provincial_terrain and province_map is not None and provincial_terrain:
+        terrain_arr = _terrain_array_from_provincial(
+            provincial_terrain, province_map, tile_map=tile_map
+        )
+    else:
+        terrain_arr = terrain_map
+
+    h, w = terrain_arr.shape
+    hm = np.full((h, w), float(SEA_LEVEL), dtype=np.float32)
+
+    # 1. 每种 terrain: distance field → 高度
+    for name, params in _HEIGHT_BY_TERRAIN.items():
+        if name not in TERRAIN_PALETTE_INDEX:
+            continue
+        idx = TERRAIN_PALETTE_INDEX[name]
+        mask = terrain_arr == idx
+        if not mask.any():
+            continue
+        # 该地形像素到该地形区域边界的距离 (距离非该地形像素的最近距离)
+        dist = distance_transform_edt(mask).astype(np.float32)
+        spread = max(params["spread"], 1)
+        # norm: 0 (边缘) → 1 (深处, 距离 ≥ spread)
+        norm = np.minimum(dist / spread, 1.0)
+        base = float(params["base"])
+        peak = float(params["peak"])
+        hm[mask] = base + norm[mask] * (peak - base)
+
+    # 2. 高斯平滑 (消除地形边界陡变, sigma 小一点保留山尖)
+    hm = gaussian_filter(hm, sigma=smooth_sigma)
+
+    # 3. 强制 land/sea/lake 约束
+    land = tile_map == TILE_LAND
+    sea = (tile_map == TILE_SEA) | (tile_map == 0)
+    lake = tile_map == TILE_LAKE
+    hm[land] = np.maximum(hm[land], SEA_LEVEL + 1)
+    hm[sea] = np.minimum(hm[sea], SEA_LEVEL - 1)
+    hm[lake] = SEA_LEVEL - 5
+
+    # HOI4 顶底行边界
+    hm[0, :] = np.minimum(hm[0, :], SEA_LEVEL)
+    hm[-1, :] = np.minimum(hm[-1, :], SEA_LEVEL)
+
+    return np.clip(hm, 30, 255).astype(np.uint8)
+
+
 def smooth_height(
     height_map: np.ndarray,
     tile_map: np.ndarray | None = None,

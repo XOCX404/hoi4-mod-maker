@@ -5,6 +5,8 @@ default_map — en 翻译
 """
 
 STRINGS: dict[str, str] = {
+    "default_map_reset_confirm_title": "Reset Tree Settings",
+    "default_map_reset_confirm_msg": "Reset tree palette indices to defaults?",
     "defmap_add_btn": "Add",
     "defmap_delete_btn": "Delete",
     "defmap_reset_btn": "Reset to Default",

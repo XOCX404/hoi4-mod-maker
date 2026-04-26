@@ -73,9 +73,24 @@ def _write_8bit_bmp(path: str, data: np.ndarray,
         f.write(struct.pack("<ii", 2835, 2835))
         f.write(struct.pack("<II", 256, 0))
 
-        # Palette (grayscale)
+        # Palette — 必须是**真正的**调色板（非 identity grayscale），
+        # 否则部分解析器会把 BMP 当作灰度 L 模式读取，8-bit 像素值被当高度差，
+        # 调色板索引失效 → HOI4 读到异常城市类型 → EXCEPTION_INT_DIVIDE_BY_ZERO。
+        # HOI4 实际只读 index 0 / 1 / 2 / 3 / 15，其余填任意非对角色。
+        _CITIES_PALETTE = {
+            0: (0, 0, 0),        # 无城市
+            1: (150, 150, 150),  # 普通城市
+            2: (180, 140, 80),   # 沙漠城市
+            3: (120, 90, 50),    # 深色城市
+            15: (200, 200, 200), # 沙漠城市 (variant)
+        }
         for i in range(256):
-            f.write(struct.pack("BBBB", i, i, i, 0))
+            if i in _CITIES_PALETTE:
+                r, g, b = _CITIES_PALETTE[i]
+            else:
+                # 其他索引填一个和 identity grayscale 明显不同的色，防止解析器降级
+                r, g, b = (i, (i * 131) & 0xFF, (i * 239) & 0xFF)
+            f.write(struct.pack("BBBB", b, g, r, 0))  # BMP palette = BGRA
 
         # Pixel data (bottom-up)
         pad = b"\x00" * row_pad

@@ -85,6 +85,20 @@ class CountryManager:
         elif not tag:
             self._state_owner.pop(state_id, None)
 
+    def remap_state_ids(self, mapping: dict[int, int]) -> None:
+        """配合 StateManager.compact_ids: 把 _state_owner 里的 state ID 按 mapping 替换.
+
+        old → new 映射里没出现的 state ID 视为已被删除, 一起从 _state_owner 移除.
+        """
+        if not mapping:
+            return
+        new_owner: dict[int, str] = {}
+        for old_sid, tag in self._state_owner.items():
+            new_sid = mapping.get(old_sid)
+            if new_sid is not None:
+                new_owner[new_sid] = tag
+        self._state_owner = new_owner
+
     def set_capital(self, tag: str, province_id: int) -> None:
         """设置首都"""
         if tag in self._countries:
@@ -146,9 +160,12 @@ class CountryManager:
                 int(rng.randint(60, 220)),
             )
 
+        # 标记 pid 是否属于"已分配国家"的 land province (供 country renderer 画白边时过滤)
+        assigned_lut = np.zeros(max_pid + 1, dtype=bool)
         for sid, state in state_manager.states.items():
             tag = self._state_owner.get(sid, "")
-            if tag and tag in self._countries:
+            assigned = bool(tag and tag in self._countries)
+            if assigned:
                 color = self._countries[tag].color
             else:
                 sr, sg, sb = state_colors.get(sid, (100, 100, 100))
@@ -164,11 +181,15 @@ class CountryManager:
                     # 只涂真陆地省; 海洋省误加进 state 也保持蓝
                     if is_land_arr is None or is_land_arr[pid]:
                         lut[pid] = color
+                        if assigned:
+                            assigned_lut[pid] = True
 
         flat = province_map.ravel()
         flat_clipped = np.clip(flat, 0, max_pid)
         rgb = lut[flat_clipped].reshape(province_map.shape[0], province_map.shape[1], 3)
-        return rgb
+        # 第二个返回: assigned mask (H, W) — True 表示该像素是"已分配国家"的 land
+        assigned_mask = assigned_lut[flat_clipped].reshape(rgb.shape[0], rgb.shape[1])
+        return rgb, assigned_mask
 
     def get_country_list(self) -> list[tuple[str, str, tuple[int, int, int]]]:
         """返回 [(tag, name, color), ...] 用于 UI 列表"""
